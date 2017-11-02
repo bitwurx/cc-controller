@@ -171,17 +171,6 @@ func TestControllerAddTask(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
-	// ctrl := NewController(nil)
-	// task := NewTask([]byte(`{"key": "test123", priority": 12.3}`))w
-	// client := &MockControllerAddTaskClient{}
-	// model := MockControllerAddTaskModel{MockModel: MockModel{}}
-	// if err := ctrl.AddTask(task, client, model); err != nil {
-	// 	t.Fatal(err)
-	// }
-	// if _, ok := ctrl.Resources["test123"]; !ok {
-	// 	t.Fatal("expected resource with name 'test123' to exist")
-	// }
 }
 
 func TestControllerAddResource(t *testing.T) {
