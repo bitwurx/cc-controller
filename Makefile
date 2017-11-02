@@ -27,7 +27,7 @@ test:
 		-w /go/src/concord-controller \
 		--link concord-controller_test__arangodb:arangodb \
 		--name concord-controller_test \
-		golang /bin/sh -c "go get -v -t -d && go test -v"
+		golang /bin/sh -c "go get -v -t -d && go test -v -coverprofile=.coverage.out"
 	@docker logs -f concord-controller_test
 	@docker rm -f concord-controller_test
 	@docker rm -f concord-controller_test__arangodb
@@ -36,7 +36,10 @@ test:
 test-short:
 	@docker run \
 		--rm \
+		-e CONCORD_STATUS_CHANGE_NOTIFIER_HOST=concord-status-change-notifier \
+		-e CONCORD_PRIORITY_QUEUE_HOST=concord-priority-queue \
+		-e CONCORD_TIMETABLE_HOST=concord-timetable \
 		-v $(PWD):/go/src/concord-controller \
 		-v $(PWD)/.src:/go/src \
 		-w /go/src/concord-controller \
-		golang /bin/sh -c "go get -v -t -d && go test -short -v -coverprofile=.coverage.out"
+		golang /bin/sh -c "go get -v -t -d && go test -short -v"
