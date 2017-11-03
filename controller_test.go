@@ -111,9 +111,10 @@ func TestServiceBrokerCall(t *testing.T) {
 
 func TestControllerAddTask(t *testing.T) {
 	var table = []struct {
-		T         *Task
+		Task      *Task
 		Result    float64
 		BrokerErr *jrpc2.ErrorObject
+		Model     bool
 		ModelErr  error
 		Err       error
 	}{
@@ -121,6 +122,7 @@ func TestControllerAddTask(t *testing.T) {
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			0,
 			nil,
+			true,
 			nil,
 			nil,
 		},
@@ -128,6 +130,7 @@ func TestControllerAddTask(t *testing.T) {
 			NewTask([]byte(fmt.Sprintf(`{"key": "test123", "runAt": "%s"}`, time.Now().Format(time.RFC3339)))),
 			0,
 			nil,
+			true,
 			nil,
 			nil,
 		},
@@ -135,6 +138,7 @@ func TestControllerAddTask(t *testing.T) {
 			NewTask([]byte(fmt.Sprintf(`{"key": "test123", runAt": %s}`, time.Now().Format(time.RFC3339)))),
 			-1,
 			nil,
+			false,
 			nil,
 			errors.New("task add failed"),
 		},
@@ -142,6 +146,7 @@ func TestControllerAddTask(t *testing.T) {
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			-1,
 			&jrpc2.ErrorObject{Message: "broker error"},
+			false,
 			nil,
 			errors.New("broker error"),
 		},
@@ -149,26 +154,35 @@ func TestControllerAddTask(t *testing.T) {
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			0,
 			nil,
+			true,
 			errors.New("model error"),
 			errors.New("model error"),
 		},
 	}
 
 	for _, tt := range table {
+		var model *MockModel
 		broker := new(MockServiceBroker)
-		params := map[string]interface{}{"key": tt.T.Key, "id": tt.T.Id}
-		if tt.T.RunAt != nil {
-			params["runAt"] = tt.T.RunAt.Format(time.RFC3339)
-			broker.On("Call", TimetableHost, "insert", params).Return(tt.Result, tt.BrokerErr)
+		params := map[string]interface{}{"key": tt.Task.Key, "id": tt.Task.Id}
+		if tt.Task.RunAt != nil {
+			params["runAt"] = tt.Task.RunAt.Format(time.RFC3339)
+			broker.On("Call", TimetableHost, "insert", params).Return(tt.Result, tt.BrokerErr).Once()
 		} else {
-			params["priority"] = tt.T.Priority
-			broker.On("Call", PriorityQueueHost, "push", params).Return(tt.Result, tt.BrokerErr)
+			params["priority"] = tt.Task.Priority
+			broker.On("Call", PriorityQueueHost, "push", params).Return(tt.Result, tt.BrokerErr).Once()
 		}
-		model := new(MockModel)
-		model.On("Save", tt.T).Return(DocumentMeta{}, tt.ModelErr)
+		if tt.Model {
+			model = new(MockModel)
+			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
+		}
 		ctrl := NewController(broker)
-		if err := ctrl.AddTask(tt.T, model); err != nil && err.Error() != tt.Err.Error() {
+		if err := ctrl.AddTask(tt.Task, model); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
+		}
+		broker.AssertExpectations(t)
+
+		if tt.Model {
+			model.AssertExpectations(t)
 		}
 	}
 }
@@ -215,10 +229,92 @@ func TestControllerNotify(t *testing.T) {
 	for _, tt := range table {
 		params := map[string]interface{}{"created": tt.Evt.Created, "kind": tt.Evt.Kind, "meta": tt.Evt.Meta}
 		broker := new(MockServiceBroker)
-		broker.On("Call", tt.Url, "notify", params).Return(tt.Result, tt.BrokerErr)
+		broker.On("Call", tt.Url, "notify", params).Return(tt.Result, tt.BrokerErr).Once()
 		ctrl := NewController(broker)
 		if err := ctrl.Notify(tt.Evt); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
+		broker.AssertExpectations(t)
+	}
+}
+
+func TestControllerGetTask(t *testing.T) {
+	task := NewTask([]byte(`{"key": "test123", priority": 12.3}`))
+	var table = []struct {
+		TaskId   string
+		Tasks    []interface{}
+		ModelErr error
+		Err      error
+	}{
+		{
+			task.Id,
+			[]interface{}{task},
+			nil,
+			nil,
+		},
+		{
+			"abc123",
+			nil,
+			errors.New("query error"),
+			errors.New("query error"),
+		},
+		{
+			"abc123",
+			make([]interface{}, 0),
+			nil,
+			errors.New("not found"),
+		},
+	}
+
+	for _, tt := range table {
+		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+		ctrl := NewController(nil)
+		model := new(MockModel)
+		model.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.Tasks, tt.ModelErr).Once()
+		task, err := ctrl.GetTask(tt.TaskId, model)
+		if err != nil && err.Error() != tt.Err.Error() {
+			t.Fatal(err)
+		}
+		if task != nil && task.Id != tt.TaskId {
+			t.Fatalf("expected task key to be %s, got %s", task.Id, tt.TaskId)
+		}
+		model.AssertExpectations(t)
+	}
+}
+
+func TestControllerListTimetable(t *testing.T) {
+	var table = []struct {
+		Key       string
+		Result    json.RawMessage
+		BrokerErr *jrpc2.ErrorObject
+		Err       error
+	}{
+		{
+			"test",
+			[]byte(`{"_key":"test","schedule":[{"_key":"test","runAt":"01-01-2017T12:00:00Z"}]}`),
+			nil,
+			nil,
+		},
+		{
+			"test",
+			nil,
+			&jrpc2.ErrorObject{Code: -32002, Message: "Timetable not found"},
+			errors.New("Timetable not found"),
+		},
+	}
+
+	for _, tt := range table {
+		params := map[string]interface{}{"key": tt.Key}
+		broker := new(MockServiceBroker)
+		broker.On("Call", TimetableHost, "get", params).Return(tt.Result, tt.BrokerErr)
+		ctrl := NewController(broker)
+		list, err := ctrl.ListTimetable(tt.Key)
+		if err != nil && err.Error() != tt.Err.Error() {
+			t.Fatal(err)
+		}
+		if list != nil && string(list) != string(tt.Result) {
+			t.Fatalf("expected list to be %s, got %s", tt.Result, list)
+		}
+		broker.AssertExpectations(t)
 	}
 }

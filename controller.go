@@ -131,6 +131,30 @@ func (ctrl *Controller) AddTask(task *Task, taskModel Model) error {
 	return nil
 }
 
+// GetTask returns the task with the provided id.
+func (ctrl *Controller) GetTask(taskId string, taskModel Model) (*Task, error) {
+	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+	tasks, err := taskModel.Query(q, map[string]interface{}{"key": taskId})
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) < 1 {
+		return nil, errors.New("not found")
+	}
+	return tasks[0].(*Task), nil
+}
+
+// ListTimetable lists the scheduled tasks in the task with the
+// provided key.
+func (ctrl *Controller) ListTimetable(key string) (json.RawMessage, error) {
+	params := map[string]interface{}{"key": key}
+	result, errObj := ctrl.broker.Call(TimetableHost, "get", params)
+	if errObj != nil {
+		return nil, errors.New(string(errObj.Message))
+	}
+	return result.(json.RawMessage), nil
+}
+
 // Notify sends a status change event to the status change notifier.
 func (ctrl *Controller) Notify(evt *Event) error {
 	params := map[string]interface{}{"created": evt.Created, "kind": evt.Kind, "meta": evt.Meta}
