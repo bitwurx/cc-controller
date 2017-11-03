@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/bitwurx/jrpc2"
@@ -21,6 +22,17 @@ var (
 	PriorityQueueHost        = os.Getenv("CONCORD_PRIORITY_QUEUE_HOST")         // the hostname of the priority queue service.
 	TimetableHost            = os.Getenv("CONCORD_TIMETABLE_HOST")              // the hostname of the timetable service.
 	StatusChangeNotifierHost = os.Getenv("CONCORD_STATUS_CHANGE_NOTIFIER_HOST") // the hostname of the status change notifier service.
+)
+
+var (
+	NoStagedTaskError        = errors.New("no staged task")
+	NotificationFailedError  = errors.New("notification failed")
+	QueueNotFoundError       = errors.New("queue not found")
+	ResourceUnavailableError = errors.New("resource unavailable")
+	TaskAddFailedError       = errors.New("task add failed")
+	TaskAlreadyStartedError  = errors.New("task already started")
+	TaskNotFoundError        = errors.New("task not found")
+	TimetableNotFound        = errors.New("timetable not found")
 )
 
 const (
@@ -82,7 +94,7 @@ func NewEvent(kind string, meta []byte) *Event {
 
 // Controller handles tasks progression and resource allocation.
 type Controller struct {
-	Resources map[string]*Resource
+	resources map[string]*Resource
 	stage     map[string]*Task
 	broker    ServiceBroker
 }
@@ -94,8 +106,8 @@ func NewController(broker ServiceBroker) *Controller {
 
 // AddResource adds the resource to the controller for management.
 func (ctrl *Controller) AddResource(name string) {
-	if _, ok := ctrl.Resources[name]; !ok {
-		ctrl.Resources[name] = NewResource(name)
+	if _, ok := ctrl.resources[name]; !ok {
+		ctrl.resources[name] = NewResource(name)
 	}
 }
 
@@ -109,22 +121,26 @@ func (ctrl *Controller) AddResource(name string) {
 func (ctrl *Controller) AddTask(task *Task, taskModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
+	var status TaskStatus
 
 	params := map[string]interface{}{"key": task.Key, "id": task.Id}
 	if task.RunAt != nil {
 		params["runAt"] = task.RunAt.Format(time.RFC3339)
 		result, errObj = ctrl.broker.Call(TimetableHost, "insert", params)
+		status = StatusScheduled
 	} else {
 		params["priority"] = task.Priority
 		result, errObj = ctrl.broker.Call(PriorityQueueHost, "push", params)
+		status = StatusQueued
 	}
 	if errObj != nil {
 		return errors.New(string(errObj.Message))
 	}
 	result = int(result.(float64))
 	if result != 0 {
-		return errors.New("task add failed")
+		return TaskAddFailedError
 	}
+	task.Status = status
 	if _, err := taskModel.Save(task); err != nil {
 		return err
 	}
@@ -139,18 +155,29 @@ func (ctrl *Controller) GetTask(taskId string, taskModel Model) (*Task, error) {
 		return nil, err
 	}
 	if len(tasks) < 1 {
-		return nil, errors.New("not found")
+		return nil, TaskNotFoundError
 	}
 	return tasks[0].(*Task), nil
 }
 
-// ListTimetable lists the scheduled tasks in the task with the
+// ListPrioriryQueue lists the heap nodes in the priority queue
+// with the provided key.
+func (ctrl *Controller) ListPriorityQueue(key string) (json.RawMessage, error) {
+	params := map[string]interface{}{"key": key}
+	result, errObj := ctrl.broker.Call(PriorityQueueHost, "get", params)
+	if errObj != nil {
+		return nil, errors.New(strings.ToLower(string(errObj.Message)))
+	}
+	return result.(json.RawMessage), nil
+}
+
+// ListTimetable lists the scheduled tasks in the timetable with the
 // provided key.
 func (ctrl *Controller) ListTimetable(key string) (json.RawMessage, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(TimetableHost, "get", params)
 	if errObj != nil {
-		return nil, errors.New(string(errObj.Message))
+		return nil, errors.New(strings.ToLower(string(errObj.Message)))
 	}
 	return result.(json.RawMessage), nil
 }
@@ -164,7 +191,27 @@ func (ctrl *Controller) Notify(evt *Event) error {
 	}
 	result = int(result.(float64))
 	if result != 0 {
-		return errors.New("notification failed")
+		return NotificationFailedError
 	}
 	return nil
+}
+
+// StartTask starts the staged task.
+//
+// an error is encountered if no staged task exists for the key or if
+// the resource associated with the task is locked.
+func (ctrl *Controller) StartTask(key string) error {
+	if task, ok := ctrl.stage[key]; ok {
+		if task.Status == StatusStarted {
+			return TaskAlreadyStartedError
+		}
+		if ctrl.resources[key].Status == ResourceLocked {
+			return ResourceUnavailableError
+		}
+		ctrl.resources[key].Status = ResourceLocked
+		task.Status = StatusStarted
+		return nil
+	}
+
+	return NoStagedTaskError
 }
