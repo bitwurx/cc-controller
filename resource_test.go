@@ -50,7 +50,7 @@ func TestResourceSave(t *testing.T) {
 	for _, tt := range table {
 		resc := NewResource(tt.Name)
 		model := new(MockModel)
-		model.On("Save", resc).Return(DocumentMeta{}, tt.ModelErr)
+		model.On("Save", resc).Return(DocumentMeta{}, tt.ModelErr).Once()
 		if _, err := resc.Save(model); err != tt.ModelErr {
 			t.Fatal(err)
 		}
