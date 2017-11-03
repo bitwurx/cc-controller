@@ -9,12 +9,14 @@ import (
 )
 
 const (
-	StatusPending   = iota // pending task status.
-	StatusQueued           // queued task status.
-	StatusScheduled        // queue scheduled status.
-	StatusStarted          // started task status.
-	StatusComplete         // complete task status.
+	StatusPending   TaskStatus = iota // pending task status.
+	StatusQueued                      // queued task status.
+	StatusScheduled                   // queue scheduled status.
+	StatusStarted                     // started task status.
+	StatusComplete                    // complete task status.
 )
+
+type TaskStatus int
 
 // TaskStat stores a runtime for a task.
 type TaskStat struct {
@@ -51,7 +53,7 @@ type Task struct {
 	Meta     json.RawMessage `json:"meta;omitempty"`
 	Priority float64         `json:"priority"`
 	RunAt    *time.Time      `json:"runAt;omitempty"`
-	Status   int             `json:"status"`
+	Status   TaskStatus      `json:"status"`
 }
 
 // NewTask returns an initialized task instance.
@@ -62,7 +64,7 @@ func NewTask(data []byte) *Task {
 }
 
 // ChangeStatus changes the status of the task and saves the task.
-func (task *Task) ChangeStatus(taskModel Model, status int) error {
+func (task *Task) ChangeStatus(taskModel Model, status TaskStatus) error {
 	task.Status = status
 	_, err := task.Save(taskModel)
 	return err
