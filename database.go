@@ -97,7 +97,24 @@ func (model *TaskModel) Create() error {
 
 // Query runs the AQL query against the task model collection.
 func (model *TaskModel) Query(q string, vars interface{}) ([]interface{}, error) {
-	return make([]interface{}, 0), nil
+	tasks := make([]interface{}, 0)
+	cursor, err := db.Query(nil, q, vars.(map[string]interface{}))
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close()
+	for {
+		task := new(Task)
+		_, err := cursor.ReadDocument(nil, task)
+		if arango.IsNoMoreDocuments(err) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	return tasks, nil
 }
 
 // Save creates a document in the tasks collection.

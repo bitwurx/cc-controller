@@ -70,16 +70,6 @@ func TestTaskStatModelSave(t *testing.T) {
 	}
 }
 
-func TestTaskModelCreate(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test")
-	}
-	model := new(TaskModel)
-	if err := model.Create(); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestTaskStatModelQuery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")
@@ -102,6 +92,36 @@ func TestTaskStatModelQuery(t *testing.T) {
 	}
 
 	t.Fatal("expected task stat with run time 23.5 to exist")
+}
+
+func TestTaskModelCreate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	model := new(TaskModel)
+	if err := model.Create(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTaskModelQuery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	task := NewTask([]byte(`{"priority": 2.1}`))
+	model := new(TaskModel)
+	if _, err := model.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+	tasks, err := model.Query(q, map[string]interface{}{"key": task.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task = tasks[0].(*Task)
+	if task.Priority != 2.1 {
+		t.Fatal("expected task priority to be 2.1")
+	}
 }
 
 func TestTaskModelSave(t *testing.T) {
