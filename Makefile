@@ -36,6 +36,7 @@ test:
 test-short:
 	@docker run \
 		--rm \
+		-it \
 		-e CONCORD_STATUS_CHANGE_NOTIFIER_HOST=concord-status-change-notifier \
 		-e CONCORD_PRIORITY_QUEUE_HOST=concord-priority-queue \
 		-e CONCORD_TIMETABLE_HOST=concord-timetable \

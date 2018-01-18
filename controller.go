@@ -108,13 +108,13 @@ type Controller interface {
 // ResourceController handles tasks progression and resource allocation.
 type ResourceController struct {
 	resources map[string]*Resource
-	stage     map[string]*Task
+	stage     map[string](chan *Task)
 	broker    ServiceBroker
 }
 
 // NewResourceController creates a new ResourceController instance.
 func NewResourceController(broker ServiceBroker) *ResourceController {
-	return &ResourceController{make(map[string]*Resource), make(map[string]*Task), broker}
+	return &ResourceController{make(map[string]*Resource), make(map[string](chan *Task)), broker}
 }
 
 // AddResource adds the resource to the ResourceController for management.
@@ -169,18 +169,23 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 // an error is encountered if no staged task exists for the key or if
 // the task is not in the started state.
 func (ctrl *ResourceController) CompleteTask(key string, taskModel Model) error {
-	if task, ok := ctrl.stage[key]; ok {
-		if task.Status != StatusStarted {
-			return TaskNotStartedError
-		}
-		ctrl.resources[key].Status = ResourceFree
-		task.Status = StatusComplete
-		_, err := taskModel.Save(task)
-		ctrl.resources[key] = nil
+	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+	tasks, err := taskModel.Query(q, map[string]interface{}{"key": key})
+	if err != nil {
 		return err
 	}
-
-	return NoStagedTaskError
+	if len(tasks) < 1 {
+		return TaskNotFoundError
+	}
+	task := tasks[0].(*Task)
+	if task.Status != StatusStarted {
+		return TaskNotStartedError
+	}
+	ctrl.resources[key].Status = ResourceFree
+	task.Status = StatusComplete
+	_, err = taskModel.Save(task)
+	ctrl.resources[key] = nil
+	return err
 }
 
 // GetTask returns the task with the provided id.
@@ -237,12 +242,14 @@ func (ctrl *ResourceController) Notify(evt *Event) error {
 // an error is encountered if no staged task exists for the key or if
 // the resource associated with the task is locked.
 func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
-	if task, ok := ctrl.stage[key]; ok {
+	if task := <-ctrl.stage[key]; task != nil {
+		if ctrl.resources[key].Status == ResourceLocked {
+			ctrl.stage[key] <- task
+			return ResourceUnavailableError
+		}
+		ctrl.stage[key] <- nil
 		if task.Status == StatusStarted {
 			return TaskAlreadyStartedError
-		}
-		if ctrl.resources[key].Status == ResourceLocked {
-			return ResourceUnavailableError
 		}
 		ctrl.resources[key].Status = ResourceLocked
 		task.Status = StatusStarted

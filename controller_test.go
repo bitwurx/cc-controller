@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/bitwurx/jrpc2"
+	"github.com/stretchr/testify/mock"
 )
 
 func TestNewEvent(t *testing.T) {
@@ -427,16 +428,6 @@ func TestControllerStartTask(t *testing.T) {
 		},
 		{
 			"test",
-			&Task{Status: StatusStarted},
-			&Resource{Name: "test", Status: ResourceLocked},
-			TaskAlreadyStartedError,
-			false,
-			nil,
-			StatusStarted,
-			ResourceLocked,
-		},
-		{
-			"test",
 			&Task{Status: StatusPending},
 			&Resource{Name: "test", Status: ResourceLocked},
 			ResourceUnavailableError,
@@ -449,9 +440,8 @@ func TestControllerStartTask(t *testing.T) {
 
 	for i, tt := range table {
 		ctrl := NewResourceController(nil)
-		if tt.Task != nil {
-			ctrl.stage[tt.Key] = tt.Task
-		}
+		ctrl.stage[tt.Key] = make(chan *Task, 1)
+		ctrl.stage[tt.Key] <- tt.Task
 		if tt.Resource != nil {
 			ctrl.resources[tt.Key] = tt.Resource
 		}
@@ -465,9 +455,6 @@ func TestControllerStartTask(t *testing.T) {
 		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
 			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
 		}
-		if ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key].Status != tt.TaskStatus {
-			t.Fatalf("[%d] expected task status %d, got %d", i, tt.TaskStatus, ctrl.stage[tt.Key].Status)
-		}
 		if tt.Model {
 			model.AssertExpectations(t)
 		}
@@ -476,80 +463,95 @@ func TestControllerStartTask(t *testing.T) {
 
 func TestControllerCompleteTask(t *testing.T) {
 	modelErr := errors.New("model error")
+	queryErr := errors.New("query error")
 	var table = []struct {
 		Key            string
-		Task           *Task
+		Tasks          []interface{}
 		Resource       *Resource
 		Err            error
 		Model          bool
 		ModelErr       error
+		QueryErr       error
 		TaskStatus     TaskStatus
 		ResourceStatus ResourceStatus
 	}{
 		{
 			"test",
-			&Task{Status: StatusStarted},
+			[]interface{}{&Task{Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceLocked},
 			nil,
 			true,
 			nil,
+			nil,
 			StatusComplete,
 			ResourceFree,
 		},
 		{
 			"test",
-			&Task{Status: StatusStarted},
+			[]interface{}{&Task{Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceFree},
 			nil,
 			true,
 			nil,
-			StatusComplete,
-			ResourceFree,
-		},
-		{
-			"test",
-			nil,
-			nil,
-			NoStagedTaskError,
-			false,
 			nil,
 			StatusComplete,
 			ResourceFree,
 		},
 		{
 			"test",
-			&Task{Status: StatusQueued},
+			[]interface{}{&Task{Status: StatusQueued}},
 			&Resource{Name: "test", Status: ResourceFree},
 			TaskNotStartedError,
 			false,
+			nil,
 			nil,
 			StatusQueued,
 			ResourceFree,
 		},
 		{
 			"test",
-			&Task{Status: StatusStarted},
+			[]interface{}{&Task{Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceLocked},
 			modelErr,
 			true,
 			modelErr,
+			nil,
 			StatusComplete,
+			ResourceFree,
+		},
+		{
+			"test",
+			[]interface{}{},
+			&Resource{Name: "test", Status: ResourceFree},
+			TaskNotFoundError,
+			true,
+			nil,
+			nil,
+			StatusCreated,
+			ResourceFree,
+		},
+		{
+			"abc123",
+			nil,
+			&Resource{Name: "test", Status: ResourceFree},
+			queryErr,
+			true,
+			nil,
+			queryErr,
+			StatusCreated,
 			ResourceFree,
 		},
 	}
 
 	for i, tt := range table {
 		ctrl := NewResourceController(nil)
-		if tt.Task != nil {
-			ctrl.stage[tt.Key] = tt.Task
-		}
 		if tt.Resource != nil {
 			ctrl.resources[tt.Key] = tt.Resource
 		}
 		model := &MockModel{}
-		if tt.Model {
-			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
-		}
+		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+		model.On("Query", q, map[string]interface{}{"key": tt.Key}).Return(tt.Tasks, tt.QueryErr).Maybe()
+		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, tt.ModelErr).Maybe()
 		if err := ctrl.CompleteTask(tt.Key, model); err != nil && err != tt.Err {
 			t.Fatal(err)
 		}
@@ -558,9 +560,6 @@ func TestControllerCompleteTask(t *testing.T) {
 		}
 		if tt.TaskStatus == StatusComplete && ctrl.resources[tt.Key] != nil {
 			t.Fatal("expected stage to be nil")
-		}
-		if ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key].Status != tt.TaskStatus {
-			t.Fatalf("[%d] expected task status %d, got %d", i, tt.TaskStatus, ctrl.stage[tt.Key].Status)
 		}
 		if tt.Model {
 			model.AssertExpectations(t)

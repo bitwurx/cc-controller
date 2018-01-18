@@ -59,7 +59,8 @@ type Task struct {
 
 // NewTask returns an initialized task instance.
 func NewTask(data []byte) *Task {
-	task := &Task{Created: time.Now(), Status: StatusPending, Id: uuid.NewV1().String()}
+	id, _ := uuid.NewV1()
+	task := &Task{Created: time.Now(), Status: StatusPending, Id: id.String()}
 	json.Unmarshal(data, task)
 	return task
 }
