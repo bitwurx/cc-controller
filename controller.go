@@ -29,9 +29,11 @@ var (
 	NotificationFailedError  = errors.New("notification failed")
 	QueueNotFoundError       = errors.New("queue not found")
 	ResourceUnavailableError = errors.New("resource unavailable")
+	ResourceExistsError      = errors.New("resource exists")
 	TaskAddFailedError       = errors.New("task add failed")
 	TaskAlreadyStartedError  = errors.New("task already started")
 	TaskNotFoundError        = errors.New("task not found")
+	TaskNotStartedError      = errors.New("task not started")
 	TimetableNotFound        = errors.New("timetable not found")
 )
 
@@ -92,23 +94,38 @@ func NewEvent(kind string, meta []byte) *Event {
 	return &Event{Kind: kind, Created: time.Now(), Meta: meta}
 }
 
-// Controller handles tasks progression and resource allocation.
-type Controller struct {
+type Controller interface {
+	AddResource(string, Model) error
+	AddTask(*Task, Model) error
+	CompleteTask(string, Model) error
+	GetTask(string, Model) (*Task, error)
+	ListPriorityQueue(string) (json.RawMessage, error)
+	ListTimetable(string) (json.RawMessage, error)
+	Notify(*Event) error
+	StartTask(string, Model) error
+}
+
+// ResourceController handles tasks progression and resource allocation.
+type ResourceController struct {
 	resources map[string]*Resource
 	stage     map[string]*Task
 	broker    ServiceBroker
 }
 
-// NewController creates a new Controller instance.
-func NewController(broker ServiceBroker) *Controller {
-	return &Controller{make(map[string]*Resource), make(map[string]*Task), broker}
+// NewResourceController creates a new ResourceController instance.
+func NewResourceController(broker ServiceBroker) *ResourceController {
+	return &ResourceController{make(map[string]*Resource), make(map[string]*Task), broker}
 }
 
-// AddResource adds the resource to the controller for management.
-func (ctrl *Controller) AddResource(name string) {
-	if _, ok := ctrl.resources[name]; !ok {
-		ctrl.resources[name] = NewResource(name)
+// AddResource adds the resource to the ResourceController for management.
+func (ctrl *ResourceController) AddResource(name string, taskModel Model) error {
+	if _, ok := ctrl.resources[name]; ok {
+		return ResourceExistsError
 	}
+	resource := NewResource(name)
+	ctrl.resources[name] = resource
+	_, err := taskModel.Save(resource)
+	return err
 }
 
 // AddTask adds the task to the correct service.
@@ -118,7 +135,7 @@ func (ctrl *Controller) AddResource(name string) {
 //
 // If the run at point in time is omitted the task is added to the
 // priority queue service for priority order execution.
-func (ctrl *Controller) AddTask(task *Task, taskModel Model) error {
+func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
 	var status TaskStatus
@@ -147,8 +164,27 @@ func (ctrl *Controller) AddTask(task *Task, taskModel Model) error {
 	return nil
 }
 
+// CompleteTask marks the staged task as complete.
+//
+// an error is encountered if no staged task exists for the key or if
+// the task is not in the started state.
+func (ctrl *ResourceController) CompleteTask(key string, taskModel Model) error {
+	if task, ok := ctrl.stage[key]; ok {
+		if task.Status != StatusStarted {
+			return TaskNotStartedError
+		}
+		ctrl.resources[key].Status = ResourceFree
+		task.Status = StatusComplete
+		_, err := taskModel.Save(task)
+		ctrl.resources[key] = nil
+		return err
+	}
+
+	return NoStagedTaskError
+}
+
 // GetTask returns the task with the provided id.
-func (ctrl *Controller) GetTask(taskId string, taskModel Model) (*Task, error) {
+func (ctrl *ResourceController) GetTask(taskId string, taskModel Model) (*Task, error) {
 	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
 	tasks, err := taskModel.Query(q, map[string]interface{}{"key": taskId})
 	if err != nil {
@@ -162,7 +198,7 @@ func (ctrl *Controller) GetTask(taskId string, taskModel Model) (*Task, error) {
 
 // ListPrioriryQueue lists the heap nodes in the priority queue
 // with the provided key.
-func (ctrl *Controller) ListPriorityQueue(key string) (json.RawMessage, error) {
+func (ctrl *ResourceController) ListPriorityQueue(key string) (json.RawMessage, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(PriorityQueueHost, "get", params)
 	if errObj != nil {
@@ -173,7 +209,7 @@ func (ctrl *Controller) ListPriorityQueue(key string) (json.RawMessage, error) {
 
 // ListTimetable lists the scheduled tasks in the timetable with the
 // provided key.
-func (ctrl *Controller) ListTimetable(key string) (json.RawMessage, error) {
+func (ctrl *ResourceController) ListTimetable(key string) (json.RawMessage, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(TimetableHost, "get", params)
 	if errObj != nil {
@@ -183,7 +219,7 @@ func (ctrl *Controller) ListTimetable(key string) (json.RawMessage, error) {
 }
 
 // Notify sends a status change event to the status change notifier.
-func (ctrl *Controller) Notify(evt *Event) error {
+func (ctrl *ResourceController) Notify(evt *Event) error {
 	params := map[string]interface{}{"created": evt.Created, "kind": evt.Kind, "meta": evt.Meta}
 	result, errObj := ctrl.broker.Call(StatusChangeNotifierHost, "notify", params)
 	if errObj != nil {
@@ -200,7 +236,7 @@ func (ctrl *Controller) Notify(evt *Event) error {
 //
 // an error is encountered if no staged task exists for the key or if
 // the resource associated with the task is locked.
-func (ctrl *Controller) StartTask(key string) error {
+func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
 	if task, ok := ctrl.stage[key]; ok {
 		if task.Status == StatusStarted {
 			return TaskAlreadyStartedError
@@ -210,8 +246,33 @@ func (ctrl *Controller) StartTask(key string) error {
 		}
 		ctrl.resources[key].Status = ResourceLocked
 		task.Status = StatusStarted
-		return nil
+		_, err := taskModel.Save(task)
+		return err
 	}
 
 	return NoStagedTaskError
+}
+
+// queueReady fetches the next task from the priorty queue.
+func (ctrl *ResourceController) queueReady(key string) (*Task, error) {
+	params := map[string]interface{}{"key": key}
+	result, errObj := ctrl.broker.Call(PriorityQueueHost, "pop", params)
+	if errObj != nil {
+		return nil, errors.New(string(errObj.Message))
+	}
+	var task *Task
+	json.Unmarshal(result.(json.RawMessage), &task)
+	return task, nil
+}
+
+// scheduleReady fetches the next scheduled task from the timetable.
+func (ctrl *ResourceController) scheduleReady(key string) (*Task, error) {
+	params := map[string]interface{}{"key": key}
+	result, errObj := ctrl.broker.Call(TimetableHost, "next", params)
+	if errObj != nil {
+		return nil, errors.New(string(errObj.Message))
+	}
+	var task *Task
+	json.Unmarshal(result.(json.RawMessage), &task)
+	return task, nil
 }

@@ -148,6 +148,23 @@ func TestResourceModelCreate(t *testing.T) {
 	}
 }
 
+func TestResourceModelFetchAll(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	model := new(ResourceModel)
+	if _, err := model.Save(NewResource("test")); err != nil {
+		t.Fatal(err)
+	}
+	resources, err := model.FetchAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resources[0].(*Resource).Name != "test" {
+		t.Fatal("expected resource name to be 'test'")
+	}
+}
+
 func TestResourceModelSave(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")

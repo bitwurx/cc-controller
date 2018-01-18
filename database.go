@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -24,6 +25,7 @@ type DocumentMeta struct {
 // Model contains methods for interacting with database collections.
 type Model interface {
 	Create() error
+	FetchAll() ([]interface{}, error)
 	Query(string, interface{}) ([]interface{}, error)
 	Save(interface{}) (DocumentMeta, error)
 }
@@ -46,6 +48,10 @@ func (model *TaskStatModel) Create() error {
 		return err
 	}
 	return err
+}
+
+func (model *TaskStatModel) FetchAll() ([]interface{}, error) {
+	return make([]interface{}, 0), nil
 }
 
 // Query runs the AQL query against the task stat model collection.
@@ -93,6 +99,10 @@ func (model *TaskModel) Create() error {
 		return nil
 	}
 	return err
+}
+
+func (model *TaskModel) FetchAll() ([]interface{}, error) {
+	return make([]interface{}, 0), nil
 }
 
 // Query runs the AQL query against the task model collection.
@@ -146,6 +156,27 @@ func (model *ResourceModel) Create() error {
 		return nil
 	}
 	return err
+}
+
+func (model *ResourceModel) FetchAll() ([]interface{}, error) {
+	resources := make([]interface{}, 0)
+	query := fmt.Sprintf("FOR r in %s RETURN r", CollectionResources)
+	cursor, err := db.Query(nil, query, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer cursor.Close()
+	for {
+		r := new(Resource)
+		_, err := cursor.ReadDocument(nil, r)
+		if arango.IsNoMoreDocuments(err) {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		resources = append(resources, r)
+	}
+	return resources, nil
 }
 
 func (model *ResourceModel) Query(q string, vars interface{}) ([]interface{}, error) {
@@ -205,12 +236,14 @@ func InitDatabase() {
 				break
 			}
 		}
+		fmt.Println(err)
 		time.Sleep(time.Second * 1)
 	}
 
 	models := []Model{
 		&TaskModel{},
 		&TaskStatModel{},
+		&ResourceModel{},
 	}
 	for _, model := range models {
 		if err := model.Create(); err != nil {

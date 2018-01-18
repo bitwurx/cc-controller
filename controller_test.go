@@ -181,7 +181,7 @@ func TestControllerAddTask(t *testing.T) {
 			model = new(MockModel)
 			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
 		}
-		ctrl := NewController(broker)
+		ctrl := NewResourceController(broker)
 		if err := ctrl.AddTask(tt.Task, model); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
@@ -197,11 +197,29 @@ func TestControllerAddTask(t *testing.T) {
 }
 
 func TestControllerAddResource(t *testing.T) {
-	ctrl := NewController(nil)
-	ctrl.AddResource("test")
-	if _, ok := ctrl.resources["test"]; !ok {
-		t.Fatal("expected resource with 'test' to have been added")
+	var table = []struct {
+		Name     string
+		ModelErr error
+	}{
+		{"test", nil},
+		{"test", errors.New("model error")},
 	}
+
+	for _, tt := range table {
+		model := &MockModel{}
+		model.On("Save", NewResource(tt.Name)).Return(DocumentMeta{}, tt.ModelErr)
+		ctrl := NewResourceController(nil)
+		if err := ctrl.AddResource(tt.Name, model); err != nil && err.Error() != tt.ModelErr.Error() {
+			t.Fatal(err)
+		}
+		if err := ctrl.AddResource(tt.Name, model); err != ResourceExistsError {
+			t.Fatal("expected resource exists error")
+		}
+		if _, ok := ctrl.resources[tt.Name]; !ok {
+			t.Fatalf("expected resource with '%s' to have been added", tt.Name)
+		}
+	}
+
 }
 
 func TestControllerNotify(t *testing.T) {
@@ -239,7 +257,7 @@ func TestControllerNotify(t *testing.T) {
 		params := map[string]interface{}{"created": tt.Evt.Created, "kind": tt.Evt.Kind, "meta": tt.Evt.Meta}
 		broker := new(MockServiceBroker)
 		broker.On("Call", tt.Url, "notify", params).Return(tt.Result, tt.BrokerErr).Once()
-		ctrl := NewController(broker)
+		ctrl := NewResourceController(broker)
 		if err := ctrl.Notify(tt.Evt); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
@@ -277,7 +295,7 @@ func TestControllerGetTask(t *testing.T) {
 
 	for _, tt := range table {
 		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
-		ctrl := NewController(nil)
+		ctrl := NewResourceController(nil)
 		model := new(MockModel)
 		model.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.Tasks, tt.ModelErr).Once()
 		task, err := ctrl.GetTask(tt.TaskId, model)
@@ -316,7 +334,7 @@ func TestControllerListTimetable(t *testing.T) {
 		params := map[string]interface{}{"key": tt.Key}
 		broker := new(MockServiceBroker)
 		broker.On("Call", TimetableHost, "get", params).Return(tt.Result, tt.BrokerErr)
-		ctrl := NewController(broker)
+		ctrl := NewResourceController(broker)
 		list, err := ctrl.ListTimetable(tt.Key)
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
@@ -353,7 +371,7 @@ func TestControllerListPriorityQueue(t *testing.T) {
 		params := map[string]interface{}{"key": tt.Key}
 		broker := new(MockServiceBroker)
 		broker.On("Call", PriorityQueueHost, "get", params).Return(tt.Result, tt.BrokerErr)
-		ctrl := NewController(broker)
+		ctrl := NewResourceController(broker)
 		list, err := ctrl.ListPriorityQueue(tt.Key)
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
@@ -365,20 +383,35 @@ func TestControllerListPriorityQueue(t *testing.T) {
 	}
 }
 
-func TestStartTask(t *testing.T) {
+func TestControllerStartTask(t *testing.T) {
+	modelErr := errors.New("model error")
 	var table = []struct {
 		Key            string
 		Task           *Task
 		Resource       *Resource
 		Err            error
+		Model          bool
+		ModelErr       error
 		TaskStatus     TaskStatus
 		ResourceStatus ResourceStatus
 	}{
 		{
 			"test",
-			&Task{Status: StatusQueued},
+			&Task{Status: StatusPending},
 			&Resource{Name: "test", Status: ResourceFree},
 			nil,
+			true,
+			nil,
+			StatusStarted,
+			ResourceLocked,
+		},
+		{
+			"test",
+			&Task{Status: StatusPending},
+			&Resource{Name: "test", Status: ResourceFree},
+			modelErr,
+			true,
+			modelErr,
 			StatusStarted,
 			ResourceLocked,
 		},
@@ -387,6 +420,8 @@ func TestStartTask(t *testing.T) {
 			nil,
 			nil,
 			NoStagedTaskError,
+			false,
+			nil,
 			StatusScheduled,
 			ResourceFree,
 		},
@@ -395,35 +430,221 @@ func TestStartTask(t *testing.T) {
 			&Task{Status: StatusStarted},
 			&Resource{Name: "test", Status: ResourceLocked},
 			TaskAlreadyStartedError,
+			false,
+			nil,
 			StatusStarted,
 			ResourceLocked,
 		},
 		{
 			"test",
-			&Task{Status: StatusScheduled},
+			&Task{Status: StatusPending},
 			&Resource{Name: "test", Status: ResourceLocked},
 			ResourceUnavailableError,
-			StatusScheduled,
+			false,
+			nil,
+			StatusPending,
 			ResourceLocked,
 		},
 	}
 
 	for i, tt := range table {
-		ctrl := NewController(nil)
+		ctrl := NewResourceController(nil)
 		if tt.Task != nil {
 			ctrl.stage[tt.Key] = tt.Task
 		}
 		if tt.Resource != nil {
 			ctrl.resources[tt.Key] = tt.Resource
 		}
-		if err := ctrl.StartTask(tt.Key); err != nil && err != tt.Err {
+		model := &MockModel{}
+		if tt.Model {
+			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
+		}
+		if err := ctrl.StartTask(tt.Key, model); err != nil && err != tt.Err {
 			t.Fatal(err)
 		}
 		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
-			t.Fatalf("[%d] expected resource  status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
+			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
 		}
 		if ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key].Status != tt.TaskStatus {
 			t.Fatalf("[%d] expected task status %d, got %d", i, tt.TaskStatus, ctrl.stage[tt.Key].Status)
 		}
+		if tt.Model {
+			model.AssertExpectations(t)
+		}
+	}
+}
+
+func TestControllerCompleteTask(t *testing.T) {
+	modelErr := errors.New("model error")
+	var table = []struct {
+		Key            string
+		Task           *Task
+		Resource       *Resource
+		Err            error
+		Model          bool
+		ModelErr       error
+		TaskStatus     TaskStatus
+		ResourceStatus ResourceStatus
+	}{
+		{
+			"test",
+			&Task{Status: StatusStarted},
+			&Resource{Name: "test", Status: ResourceLocked},
+			nil,
+			true,
+			nil,
+			StatusComplete,
+			ResourceFree,
+		},
+		{
+			"test",
+			&Task{Status: StatusStarted},
+			&Resource{Name: "test", Status: ResourceFree},
+			nil,
+			true,
+			nil,
+			StatusComplete,
+			ResourceFree,
+		},
+		{
+			"test",
+			nil,
+			nil,
+			NoStagedTaskError,
+			false,
+			nil,
+			StatusComplete,
+			ResourceFree,
+		},
+		{
+			"test",
+			&Task{Status: StatusQueued},
+			&Resource{Name: "test", Status: ResourceFree},
+			TaskNotStartedError,
+			false,
+			nil,
+			StatusQueued,
+			ResourceFree,
+		},
+		{
+			"test",
+			&Task{Status: StatusStarted},
+			&Resource{Name: "test", Status: ResourceLocked},
+			modelErr,
+			true,
+			modelErr,
+			StatusComplete,
+			ResourceFree,
+		},
+	}
+
+	for i, tt := range table {
+		ctrl := NewResourceController(nil)
+		if tt.Task != nil {
+			ctrl.stage[tt.Key] = tt.Task
+		}
+		if tt.Resource != nil {
+			ctrl.resources[tt.Key] = tt.Resource
+		}
+		model := &MockModel{}
+		if tt.Model {
+			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
+		}
+		if err := ctrl.CompleteTask(tt.Key, model); err != nil && err != tt.Err {
+			t.Fatal(err)
+		}
+		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
+			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
+		}
+		if tt.TaskStatus == StatusComplete && ctrl.resources[tt.Key] != nil {
+			t.Fatal("expected stage to be nil")
+		}
+		if ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key] != nil && ctrl.stage[tt.Key].Status != tt.TaskStatus {
+			t.Fatalf("[%d] expected task status %d, got %d", i, tt.TaskStatus, ctrl.stage[tt.Key].Status)
+		}
+		if tt.Model {
+			model.AssertExpectations(t)
+		}
+	}
+}
+
+func TestControllerQueueReady(t *testing.T) {
+	var table = []struct {
+		Key       string
+		Priority  float64
+		Result    json.RawMessage
+		BrokerErr *jrpc2.ErrorObject
+		Err       error
+	}{
+		{
+			"test",
+			2.4,
+			[]byte(`{"_key":"test","priority":2.4}`),
+			nil,
+			nil,
+		},
+		{
+			"test",
+			0,
+			nil,
+			&jrpc2.ErrorObject{Message: "broker error"},
+			errors.New("broker error"),
+		},
+	}
+
+	for _, tt := range table {
+		params := map[string]interface{}{"key": tt.Key}
+		broker := &MockServiceBroker{}
+		broker.On("Call", PriorityQueueHost, "pop", params).Return(tt.Result, tt.BrokerErr)
+		ctrl := NewResourceController(broker)
+		task, err := ctrl.queueReady(tt.Key)
+		if err != nil && err.Error() != tt.Err.Error() {
+			t.Fatal(err)
+		}
+		if tt.Result != nil && tt.Priority != task.Priority {
+			t.Fatalf("expected task priority to be %f, got %f", tt.Priority, task.Priority)
+		}
+		broker.AssertExpectations(t)
+	}
+}
+
+func TestControllerSchedulerReady(t *testing.T) {
+	now := time.Now().Format(time.RFC3339)
+	var table = []struct {
+		Key       string
+		RunAt     string
+		Result    json.RawMessage
+		BrokerErr *jrpc2.ErrorObject
+		Err       error
+	}{
+		{
+			"test",
+			now,
+			[]byte(fmt.Sprintf(`{"_key":"test", "runAt": "%s"}`, now)),
+			nil,
+			nil,
+		},
+		{
+			"test",
+			time.Now().String(),
+			nil,
+			&jrpc2.ErrorObject{Message: "broker error"},
+			errors.New("broker error"),
+		},
+	}
+
+	for _, tt := range table {
+		params := map[string]interface{}{"key": tt.Key}
+		broker := &MockServiceBroker{}
+		broker.On("Call", TimetableHost, "next", params).Return(tt.Result, tt.BrokerErr)
+		ctrl := NewResourceController(broker)
+		task, err := ctrl.scheduleReady(tt.Key)
+		if err != nil && err.Error() != tt.Err.Error() {
+			t.Fatal(err)
+		}
+		if tt.Result != nil && tt.RunAt != task.RunAt.Format(time.RFC3339) {
+			t.Fatalf("expected task run at to be %s, got %s", tt.RunAt, task.RunAt)
+		}
+		broker.AssertExpectations(t)
 	}
 }

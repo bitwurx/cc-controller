@@ -130,7 +130,7 @@ func TestTaskChangeStatus(t *testing.T) {
 	}
 }
 
-func TestTaskGetRunTime(t *testing.T) {
+func TestTaskGetAverageRunTime(t *testing.T) {
 	testErr := errors.New("test error")
 	var table = []struct {
 		Key       string

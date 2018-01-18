@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	StatusPending   TaskStatus = iota // pending task status.
+	StatusCreated   TaskStatus = iota // created task status.
 	StatusQueued                      // queued task status.
+	StatusPending                     // pending task status.
 	StatusScheduled                   // queue scheduled status.
 	StatusStarted                     // started task status.
 	StatusComplete                    // complete task status.
