@@ -290,6 +290,12 @@ func NewApiV1(models map[string]Model, ctrl Controller, s *jrpc2.Server) *ApiV1 
 		v, _ := resource.(*Resource)
 		api.ctrl.AddResource(v.Name, models["resources"])
 	}
+	q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+	tasks, err := models["tasks"].Query(q, map[string]interface{}{})
+	for _, task := range tasks {
+		v, _ := task.(*Task)
+		api.ctrl.StageTask(v, models["tasks"], false)
+	}
 
 	s.Register("addResource", jrpc2.Method{Method: api.AddResource})
 	s.Register("addTask", jrpc2.Method{Method: api.AddTask})

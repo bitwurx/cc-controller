@@ -134,6 +134,11 @@ func (_m *MockController) Notify(_a0 *Event) error {
 	return r0
 }
 
+// StageTask provides a mock function with given fields: _a0, _a1, _a2
+func (_m *MockController) StageTask(_a0 *Task, _a1 Model, _a2 bool) {
+	_m.Called(_a0, _a1, _a2)
+}
+
 // StartTask provides a mock function with given fields: _a0, _a1
 func (_m *MockController) StartTask(_a0 string, _a1 Model) error {
 	ret := _m.Called(_a0, _a1)

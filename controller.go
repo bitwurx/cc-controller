@@ -9,12 +9,14 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bitwurx/jrpc2"
 )
 
 const (
+	StageBuffer            = 10
 	TaskStatusChangedEvent = "taskStatusChanged" // task status changed event.
 )
 
@@ -102,19 +104,20 @@ type Controller interface {
 	ListPriorityQueue(string) (json.RawMessage, error)
 	ListTimetable(string) (json.RawMessage, error)
 	Notify(*Event) error
+	StageTask(*Task, Model, bool)
 	StartTask(string, Model) error
 }
 
 // ResourceController handles tasks progression and resource allocation.
 type ResourceController struct {
 	resources map[string]*Resource
-	stage     map[string](chan *Task)
+	stage     sync.Map
 	broker    ServiceBroker
 }
 
 // NewResourceController creates a new ResourceController instance.
 func NewResourceController(broker ServiceBroker) *ResourceController {
-	return &ResourceController{make(map[string]*Resource), make(map[string](chan *Task)), broker}
+	return &ResourceController{make(map[string]*Resource), sync.Map{}, broker}
 }
 
 // AddResource adds the resource to the ResourceController for management.
@@ -184,7 +187,6 @@ func (ctrl *ResourceController) CompleteTask(key string, taskModel Model) error 
 	ctrl.resources[key].Status = ResourceFree
 	task.Status = StatusComplete
 	_, err = taskModel.Save(task)
-	ctrl.resources[key] = nil
 	return err
 }
 
@@ -242,12 +244,20 @@ func (ctrl *ResourceController) Notify(evt *Event) error {
 // an error is encountered if no staged task exists for the key or if
 // the resource associated with the task is locked.
 func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
-	if task := <-ctrl.stage[key]; task != nil {
+	ch, ok := ctrl.stage.Load(key)
+	if !ok {
+		return NoStagedTaskError
+	}
+
+	// safety nil buffer to prevent deadlock
+	ch.(chan *Task) <- nil
+
+	if task := <-ch.(chan *Task); task != nil {
 		if ctrl.resources[key].Status == ResourceLocked {
-			ctrl.stage[key] <- task
+			ch.(chan *Task) <- task
 			return ResourceUnavailableError
 		}
-		ctrl.stage[key] <- nil
+		ctrl.stage.Delete(key)
 		if task.Status == StatusStarted {
 			return TaskAlreadyStartedError
 		}
@@ -257,11 +267,42 @@ func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
 		return err
 	}
 
-	return NoStagedTaskError
+	return nil
 }
 
-// queueReady fetches the next task from the priorty queue.
-func (ctrl *ResourceController) queueReady(key string) (*Task, error) {
+// StageTask adds the pending task to the associated stage key.
+func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeStatus bool) {
+	_, ok := ctrl.stage.Load(task.Key)
+	if !ok {
+		if changeStatus {
+			task.ChangeStatus(taskModel, StatusPending)
+		}
+		ch := make(chan *Task, StageBuffer)
+		ch <- task
+		ctrl.stage.Store(task.Key, ch)
+	}
+}
+
+// StartStageLoop pulls tasks from the timetable and priority queues
+// and stages them for completion.
+func (ctrl *ResourceController) StartStageLoop(taskModel Model) {
+	for {
+		for key := range ctrl.resources {
+			task, _ := ctrl.stageScheduledTask(key)
+			if task == nil {
+				task, _ = ctrl.stageQueuedTask(key)
+			}
+			if task != nil {
+				ctrl.StageTask(task, taskModel, true)
+			}
+		}
+
+		time.Sleep(time.Second * 1)
+	}
+}
+
+// stageQueuedTask fetches the next task from the priorty queue.
+func (ctrl *ResourceController) stageQueuedTask(key string) (*Task, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(PriorityQueueHost, "pop", params)
 	if errObj != nil {
@@ -272,14 +313,16 @@ func (ctrl *ResourceController) queueReady(key string) (*Task, error) {
 	return task, nil
 }
 
-// scheduleReady fetches the next scheduled task from the timetable.
-func (ctrl *ResourceController) scheduleReady(key string) (*Task, error) {
+// stageScheduledTask fetches the next scheduled task from the timetable.
+func (ctrl *ResourceController) stageScheduledTask(key string) (*Task, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(TimetableHost, "next", params)
 	if errObj != nil {
 		return nil, errors.New(string(errObj.Message))
 	}
 	var task *Task
-	json.Unmarshal(result.(json.RawMessage), &task)
+	if result != nil {
+		json.Unmarshal(result.(json.RawMessage), &task)
+	}
 	return task, nil
 }

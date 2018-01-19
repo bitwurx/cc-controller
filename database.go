@@ -95,10 +95,11 @@ type TaskModel struct{}
 
 // Create creates the tasks collection in the arangodb database.
 func (model *TaskModel) Create() error {
-	_, err := db.CreateCollection(nil, CollectionTasks, nil)
+	col, err := db.CreateCollection(nil, CollectionTasks, nil)
 	if err != nil && arango.IsConflict(err) {
 		return nil
 	}
+	_, _, err = col.EnsureHashIndex(nil, []string{"status"}, nil)
 	return err
 }
 

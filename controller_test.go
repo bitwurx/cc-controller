@@ -440,8 +440,11 @@ func TestControllerStartTask(t *testing.T) {
 
 	for i, tt := range table {
 		ctrl := NewResourceController(nil)
-		ctrl.stage[tt.Key] = make(chan *Task, 1)
-		ctrl.stage[tt.Key] <- tt.Task
+		if tt.Task != nil {
+			ch := make(chan *Task, StageBuffer)
+			ch <- tt.Task
+			ctrl.stage.Store(tt.Key, ch)
+		}
 		if tt.Resource != nil {
 			ctrl.resources[tt.Key] = tt.Resource
 		}
@@ -558,16 +561,13 @@ func TestControllerCompleteTask(t *testing.T) {
 		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
 			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
 		}
-		if tt.TaskStatus == StatusComplete && ctrl.resources[tt.Key] != nil {
-			t.Fatal("expected stage to be nil")
-		}
 		if tt.Model {
 			model.AssertExpectations(t)
 		}
 	}
 }
 
-func TestControllerQueueReady(t *testing.T) {
+func TestControllerStagedQueuedTask(t *testing.T) {
 	var table = []struct {
 		Key       string
 		Priority  float64
@@ -596,7 +596,7 @@ func TestControllerQueueReady(t *testing.T) {
 		broker := &MockServiceBroker{}
 		broker.On("Call", PriorityQueueHost, "pop", params).Return(tt.Result, tt.BrokerErr)
 		ctrl := NewResourceController(broker)
-		task, err := ctrl.queueReady(tt.Key)
+		task, err := ctrl.stageQueuedTask(tt.Key)
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
@@ -607,7 +607,7 @@ func TestControllerQueueReady(t *testing.T) {
 	}
 }
 
-func TestControllerSchedulerReady(t *testing.T) {
+func TestControllerStageScheduledTask(t *testing.T) {
 	now := time.Now().Format(time.RFC3339)
 	var table = []struct {
 		Key       string
@@ -637,7 +637,7 @@ func TestControllerSchedulerReady(t *testing.T) {
 		broker := &MockServiceBroker{}
 		broker.On("Call", TimetableHost, "next", params).Return(tt.Result, tt.BrokerErr)
 		ctrl := NewResourceController(broker)
-		task, err := ctrl.scheduleReady(tt.Key)
+		task, err := ctrl.stageScheduledTask(tt.Key)
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
@@ -646,4 +646,102 @@ func TestControllerSchedulerReady(t *testing.T) {
 		}
 		broker.AssertExpectations(t)
 	}
+}
+
+func TestControllerStartStageLoop(t *testing.T) {
+	table := []struct {
+		Key              string
+		Resources        []*Resource
+		QueueResponse    json.RawMessage
+		QueueErr         *jrpc2.ErrorObject
+		ScheduleResponse json.RawMessage
+		ScheduleErr      *jrpc2.ErrorObject
+		Id               string
+	}{
+		{
+			"test",
+			[]*Resource{{Name: "test"}},
+			nil,
+			nil,
+			[]byte(`{"_key": "abc123", "key": "test"}`),
+			nil,
+			"abc123",
+		},
+		{
+			"test",
+			[]*Resource{{Name: "test"}},
+			nil,
+			nil,
+			nil,
+			&jrpc2.ErrorObject{Message: "error"},
+			"",
+		},
+		{
+			"test",
+			[]*Resource{{Name: "test"}},
+			[]byte(`{"_key": "abc123", "key": "test"}`),
+			nil,
+			nil,
+			nil,
+			"abc123",
+		},
+		{
+			"test",
+			[]*Resource{{Name: "test"}},
+			nil,
+			&jrpc2.ErrorObject{Message: "error"},
+			nil,
+			nil,
+			"",
+		},
+	}
+
+	for _, tt := range table {
+		params := map[string]interface{}{"key": tt.Key}
+		model := &MockModel{}
+		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
+		broker := &MockServiceBroker{}
+		ctrl := NewResourceController(broker)
+		broker.On("Call", TimetableHost, "next", params).Return(tt.ScheduleResponse, tt.ScheduleErr).Maybe().Run(func(args mock.Arguments) {
+			if tt.ScheduleErr != nil {
+				ch := make(chan *Task, StageBuffer)
+				ch <- nil
+				ctrl.stage.Store(tt.Key, ch)
+			}
+		})
+		broker.On("Call", PriorityQueueHost, "pop", params).Return(tt.QueueResponse, tt.QueueErr).Maybe().Run(func(args mock.Arguments) {
+			if tt.QueueErr != nil {
+				ch := make(chan *Task, StageBuffer)
+				ch <- nil
+				ctrl.stage.Store(tt.Key, ch)
+			}
+		})
+		for _, resource := range tt.Resources {
+			ctrl.resources[resource.Name] = resource
+		}
+		go ctrl.StartStageLoop(model)
+		var task *Task
+		for {
+			if ch, ok := ctrl.stage.Load(tt.Key); ok {
+				task = <-ch.(chan *Task)
+				break
+			}
+		}
+		if task != nil && task.Id != tt.Id {
+			t.Fatalf("expected task id to be %s", tt.Id)
+		}
+		broker.AssertExpectations(t)
+		model.AssertExpectations(t)
+	}
+}
+
+func TestStageTask(t *testing.T) {
+	model := &MockModel{}
+	model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
+	ctrl := NewResourceController(&MockServiceBroker{})
+	ctrl.StageTask(&Task{Id: "abc123", Key: "test"}, model, true)
+	if _, ok := ctrl.stage.Load("test"); !ok {
+		t.Fatal("expected stage abc123 to be ok")
+	}
+	model.AssertExpectations(t)
 }
