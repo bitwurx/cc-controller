@@ -309,7 +309,9 @@ func (ctrl *ResourceController) stageQueuedTask(key string) (*Task, error) {
 		return nil, errors.New(string(errObj.Message))
 	}
 	var task *Task
-	json.Unmarshal(result.(json.RawMessage), &task)
+	if result != nil {
+		json.Unmarshal(result.(json.RawMessage), &task)
+	}
 	return task, nil
 }
 
