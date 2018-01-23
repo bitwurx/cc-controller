@@ -99,10 +99,10 @@ func NewEvent(kind string, meta []byte) *Event {
 type Controller interface {
 	AddResource(string, Model) error
 	AddTask(*Task, Model) error
-	CompleteTask(string, Model) error
+	CompleteTask(string, int, Model) error
 	GetTask(string, Model) (*Task, error)
-	ListPriorityQueue(string) (json.RawMessage, error)
-	ListTimetable(string) (json.RawMessage, error)
+	ListPriorityQueue(string) (map[string]interface{}, error)
+	ListTimetable(string) (map[string]interface{}, error)
 	Notify(*Event) error
 	StageTask(*Task, Model, bool)
 	StartTask(string, Model) error
@@ -141,7 +141,7 @@ func (ctrl *ResourceController) AddResource(name string, taskModel Model) error 
 func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
-	var status TaskStatus
+	var status int
 
 	params := map[string]interface{}{"key": task.Key, "id": task.Id}
 	if task.RunAt != nil {
@@ -169,11 +169,11 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 
 // CompleteTask marks the staged task as complete.
 //
-// an error is encountered if no staged task exists for the key or if
-// the task is not in the started state.
-func (ctrl *ResourceController) CompleteTask(key string, taskModel Model) error {
+// an error is encountered if a task with the provided does not exist
+// or if the task is not in the started state.
+func (ctrl *ResourceController) CompleteTask(taskId string, status int, taskModel Model) error {
 	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
-	tasks, err := taskModel.Query(q, map[string]interface{}{"key": key})
+	tasks, err := taskModel.Query(q, map[string]interface{}{"key": taskId})
 	if err != nil {
 		return err
 	}
@@ -184,8 +184,8 @@ func (ctrl *ResourceController) CompleteTask(key string, taskModel Model) error 
 	if task.Status != StatusStarted {
 		return TaskNotStartedError
 	}
-	ctrl.resources[key].Status = ResourceFree
-	task.Status = StatusComplete
+	ctrl.resources[task.Key].Status = ResourceFree
+	task.Status = status
 	_, err = taskModel.Save(task)
 	return err
 }
@@ -205,24 +205,24 @@ func (ctrl *ResourceController) GetTask(taskId string, taskModel Model) (*Task, 
 
 // ListPrioriryQueue lists the heap nodes in the priority queue
 // with the provided key.
-func (ctrl *ResourceController) ListPriorityQueue(key string) (json.RawMessage, error) {
+func (ctrl *ResourceController) ListPriorityQueue(key string) (map[string]interface{}, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(PriorityQueueHost, "get", params)
 	if errObj != nil {
 		return nil, errors.New(strings.ToLower(string(errObj.Message)))
 	}
-	return result.(json.RawMessage), nil
+	return result.(map[string]interface{}), nil
 }
 
 // ListTimetable lists the scheduled tasks in the timetable with the
 // provided key.
-func (ctrl *ResourceController) ListTimetable(key string) (json.RawMessage, error) {
+func (ctrl *ResourceController) ListTimetable(key string) (map[string]interface{}, error) {
 	params := map[string]interface{}{"key": key}
 	result, errObj := ctrl.broker.Call(TimetableHost, "get", params)
 	if errObj != nil {
 		return nil, errors.New(strings.ToLower(string(errObj.Message)))
 	}
-	return result.(json.RawMessage), nil
+	return result.(map[string]interface{}), nil
 }
 
 // Notify sends a status change event to the status change notifier.

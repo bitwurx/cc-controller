@@ -108,7 +108,7 @@ func TestTaskSave(t *testing.T) {
 func TestTaskChangeStatus(t *testing.T) {
 	taskErr := errors.New("test error")
 	var table = []struct {
-		Status   TaskStatus
+		Status   int
 		ModelErr error
 	}{
 		{StatusQueued, nil},

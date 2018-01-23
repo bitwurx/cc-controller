@@ -126,15 +126,18 @@ func (api *ApiV1) AddTask(params json.RawMessage) (interface{}, *jrpc2.ErrorObje
 }
 
 type CompleteTaskParams struct {
-	Key *string `json:"key"`
+	Id     *string  `json:"id"`
+	Status *float64 `json:"status"`
 }
 
 func (params *CompleteTaskParams) FromPositional(args []interface{}) error {
-	if len(args) != 1 {
-		return errors.New("key parameter is required")
+	if len(args) != 2 {
+		return errors.New("id, status parameters are required")
 	}
-	key := args[0].(string)
-	params.Key = &key
+	id := args[0].(string)
+	status := args[1].(float64)
+	params.Id = &id
+	params.Status = &status
 
 	return nil
 }
@@ -144,21 +147,28 @@ func (api *ApiV1) CompleteTask(params json.RawMessage) (interface{}, *jrpc2.Erro
 	if err := jrpc2.ParseParams(params, p); err != nil {
 		return nil, err
 	}
-	if p.Key == nil {
+	if p.Id == nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    jrpc2.InvalidParamsCode,
 			Message: jrpc2.InvalidParamsMsg,
-			Data:    "key is required",
+			Data:    "id is required",
 		}
 	}
-	if err := api.ctrl.CompleteTask(*p.Key, api.models["tasks"]); err != nil {
+	if p.Status == nil {
+		return nil, &jrpc2.ErrorObject{
+			Code:    jrpc2.InvalidParamsCode,
+			Message: jrpc2.InvalidParamsMsg,
+			Data:    "status is required",
+		}
+	}
+	if err := api.ctrl.CompleteTask(*p.Id, int(*p.Status), api.models["tasks"]); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    CompleteTaskErrorCode,
 			Message: CompleteTaskErrorMsg,
 			Data:    err.Error(),
 		}
 	}
-	evt := NewEvent(EventTaskStatusChanged, []byte(fmt.Sprintf(`{"status": "%d"}`, StatusComplete)))
+	evt := NewEvent(EventTaskStatusChanged, []byte(fmt.Sprintf(`{"status": "%d"}`, p.Status)))
 	if err := api.ctrl.Notify(evt); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    NotificationFailedErrorCode,
@@ -302,7 +312,7 @@ func NewApiV1(models map[string]Model, ctrl Controller, s *jrpc2.Server) *ApiV1 
 	s.Register("completeTask", jrpc2.Method{Method: api.CompleteTask})
 	s.Register("getTask", jrpc2.Method{Method: api.GetTask})
 	s.Register("listPriorityQueue", jrpc2.Method{Method: api.ListPriorityQueue})
-	s.Register("listTimetable", jrpc2.Method{Method: api.ListPriorityQueue})
+	s.Register("listTimetable", jrpc2.Method{Method: api.ListTimetable})
 
 	return api
 }

@@ -114,7 +114,7 @@ func TestControllerAddTask(t *testing.T) {
 	var table = []struct {
 		Task      *Task
 		Result    float64
-		Status    TaskStatus
+		Status    int
 		BrokerErr *jrpc2.ErrorObject
 		Model     bool
 		ModelErr  error
@@ -313,13 +313,13 @@ func TestControllerGetTask(t *testing.T) {
 func TestControllerListTimetable(t *testing.T) {
 	var table = []struct {
 		Key       string
-		Result    json.RawMessage
+		Result    map[string]interface{}
 		BrokerErr *jrpc2.ErrorObject
 		Err       error
 	}{
 		{
 			"test",
-			[]byte(`{"_key":"test","schedule":[{"_key":"test","runAt":"01-01-2017T12:00:00Z"}]}`),
+			map[string]interface{}{"_key": "test"},
 			nil,
 			nil,
 		},
@@ -340,8 +340,8 @@ func TestControllerListTimetable(t *testing.T) {
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
-		if list != nil && string(list) != string(tt.Result) {
-			t.Fatalf("expected list to be %s, got %s", tt.Result, list)
+		if list != nil && list["_key"] != tt.Result["_key"] {
+			t.Fatalf("expected list to be %s, got %s", tt.Result["_key"], list["_key"])
 		}
 		broker.AssertExpectations(t)
 	}
@@ -350,13 +350,13 @@ func TestControllerListTimetable(t *testing.T) {
 func TestControllerListPriorityQueue(t *testing.T) {
 	var table = []struct {
 		Key       string
-		Result    json.RawMessage
+		Result    map[string]interface{}
 		BrokerErr *jrpc2.ErrorObject
 		Err       error
 	}{
 		{
 			"test",
-			[]byte(`{"_key":"test","count":1,"heap":[{"_key":"test","priority":2.4}]}`),
+			map[string]interface{}{"_key": "test"},
 			nil,
 			nil,
 		},
@@ -377,8 +377,8 @@ func TestControllerListPriorityQueue(t *testing.T) {
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
-		if list != nil && string(list) != string(tt.Result) {
-			t.Fatalf("expected list to be %s, got %s", tt.Result, list)
+		if list != nil && list["_key"] != tt.Result["_key"] {
+			t.Fatalf("expected list to be %s, got %s", tt.Result["_key"], list["_key"])
 		}
 		broker.AssertExpectations(t)
 	}
@@ -393,7 +393,7 @@ func TestControllerStartTask(t *testing.T) {
 		Err            error
 		Model          bool
 		ModelErr       error
-		TaskStatus     TaskStatus
+		TaskStatus     int
 		ResourceStatus ResourceStatus
 	}{
 		{
@@ -468,20 +468,22 @@ func TestControllerCompleteTask(t *testing.T) {
 	modelErr := errors.New("model error")
 	queryErr := errors.New("query error")
 	var table = []struct {
-		Key            string
+		TaskId         string
 		Tasks          []interface{}
 		Resource       *Resource
+		Status         int
 		Err            error
 		Model          bool
 		ModelErr       error
 		QueryErr       error
-		TaskStatus     TaskStatus
+		TaskStatus     int
 		ResourceStatus ResourceStatus
 	}{
 		{
 			"test",
-			[]interface{}{&Task{Status: StatusStarted}},
+			[]interface{}{&Task{Key: "test", Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceLocked},
+			StatusComplete,
 			nil,
 			true,
 			nil,
@@ -491,8 +493,9 @@ func TestControllerCompleteTask(t *testing.T) {
 		},
 		{
 			"test",
-			[]interface{}{&Task{Status: StatusStarted}},
+			[]interface{}{&Task{Key: "test", Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceFree},
+			StatusCancelled,
 			nil,
 			true,
 			nil,
@@ -502,8 +505,9 @@ func TestControllerCompleteTask(t *testing.T) {
 		},
 		{
 			"test",
-			[]interface{}{&Task{Status: StatusQueued}},
+			[]interface{}{&Task{Key: "test", Status: StatusQueued}},
 			&Resource{Name: "test", Status: ResourceFree},
+			StatusComplete,
 			TaskNotStartedError,
 			false,
 			nil,
@@ -513,8 +517,9 @@ func TestControllerCompleteTask(t *testing.T) {
 		},
 		{
 			"test",
-			[]interface{}{&Task{Status: StatusStarted}},
+			[]interface{}{&Task{Key: "test", Status: StatusStarted}},
 			&Resource{Name: "test", Status: ResourceLocked},
+			StatusComplete,
 			modelErr,
 			true,
 			modelErr,
@@ -526,6 +531,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			"test",
 			[]interface{}{},
 			&Resource{Name: "test", Status: ResourceFree},
+			StatusComplete,
 			TaskNotFoundError,
 			true,
 			nil,
@@ -537,6 +543,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			"abc123",
 			nil,
 			&Resource{Name: "test", Status: ResourceFree},
+			StatusComplete,
 			queryErr,
 			true,
 			nil,
@@ -549,17 +556,17 @@ func TestControllerCompleteTask(t *testing.T) {
 	for i, tt := range table {
 		ctrl := NewResourceController(nil)
 		if tt.Resource != nil {
-			ctrl.resources[tt.Key] = tt.Resource
+			ctrl.resources[tt.TaskId] = tt.Resource
 		}
 		model := &MockModel{}
 		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
-		model.On("Query", q, map[string]interface{}{"key": tt.Key}).Return(tt.Tasks, tt.QueryErr).Maybe()
+		model.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.Tasks, tt.QueryErr).Maybe()
 		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, tt.ModelErr).Maybe()
-		if err := ctrl.CompleteTask(tt.Key, model); err != nil && err != tt.Err {
+		if err := ctrl.CompleteTask(tt.TaskId, tt.Status, model); err != nil && err != tt.Err {
 			t.Fatal(err)
 		}
-		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
-			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
+		if ctrl.resources[tt.TaskId] != nil && ctrl.resources[tt.TaskId].Status != tt.ResourceStatus {
+			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.TaskId].Status)
 		}
 		if tt.Model {
 			model.AssertExpectations(t)
