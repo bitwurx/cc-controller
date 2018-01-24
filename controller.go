@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/bitwurx/jrpc2"
+	"github.com/mitchellh/mapstructure"
 )
 
 const (
@@ -99,13 +101,13 @@ func NewEvent(kind string, meta []byte) *Event {
 type Controller interface {
 	AddResource(string, Model) error
 	AddTask(*Task, Model) error
-	CompleteTask(string, int, Model) error
+	CompleteTask(string, string, Model, Model) error
 	GetTask(string, Model) (*Task, error)
 	ListPriorityQueue(string) (map[string]interface{}, error)
 	ListTimetable(string) (map[string]interface{}, error)
 	Notify(*Event) error
 	StageTask(*Task, Model, bool)
-	StartTask(string, Model) error
+	StartTask(string, Model, Model) error
 }
 
 // ResourceController handles tasks progression and resource allocation.
@@ -128,6 +130,7 @@ func (ctrl *ResourceController) AddResource(name string, taskModel Model) error 
 	resource := NewResource(name)
 	ctrl.resources[name] = resource
 	_, err := taskModel.Save(resource)
+	log.Printf("resource added [%s]\n", name)
 	return err
 }
 
@@ -141,17 +144,19 @@ func (ctrl *ResourceController) AddResource(name string, taskModel Model) error 
 func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
-	var status int
+	var status string
 
 	params := map[string]interface{}{"key": task.Key, "id": task.Id}
 	if task.RunAt != nil {
 		params["runAt"] = task.RunAt.Format(time.RFC3339)
 		result, errObj = ctrl.broker.Call(TimetableHost, "insert", params)
 		status = StatusScheduled
+		log.Printf("scheduled task [%s]\n", task)
 	} else {
 		params["priority"] = task.Priority
 		result, errObj = ctrl.broker.Call(PriorityQueueHost, "push", params)
 		status = StatusQueued
+		log.Printf("queued task [%s]\n", task)
 	}
 	if errObj != nil {
 		return errors.New(string(errObj.Message))
@@ -164,6 +169,15 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 	if _, err := taskModel.Save(task); err != nil {
 		return err
 	}
+
+	meta := make(map[string]interface{})
+	json.Unmarshal(task.Meta, &meta)
+	meta["_status"] = StatusCreated
+	meta["_id"] = task.Id
+	data, _ := json.Marshal(meta)
+	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
+	log.Printf("created task [%s]\n", task)
+
 	return nil
 }
 
@@ -171,7 +185,7 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 //
 // an error is encountered if a task with the provided does not exist
 // or if the task is not in the started state.
-func (ctrl *ResourceController) CompleteTask(taskId string, status int, taskModel Model) error {
+func (ctrl *ResourceController) CompleteTask(taskId string, status string, taskModel Model, resourceModel Model) error {
 	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
 	tasks, err := taskModel.Query(q, map[string]interface{}{"key": taskId})
 	if err != nil {
@@ -186,8 +200,22 @@ func (ctrl *ResourceController) CompleteTask(taskId string, status int, taskMode
 	}
 	ctrl.resources[task.Key].Status = ResourceFree
 	task.Status = status
-	_, err = taskModel.Save(task)
-	return err
+	if _, err := taskModel.Save(task); err != nil {
+		return err
+	}
+	if _, err := resourceModel.Save(ctrl.resources[task.Key]); err != nil {
+		return err
+	}
+
+	meta := make(map[string]interface{})
+	json.Unmarshal(task.Meta, &meta)
+	meta["_status"] = status
+	meta["_id"] = taskId
+	data, _ := json.Marshal(meta)
+	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
+	log.Printf("completed task [%s]\n", task)
+
+	return nil
 }
 
 // GetTask returns the task with the provided id.
@@ -243,7 +271,7 @@ func (ctrl *ResourceController) Notify(evt *Event) error {
 //
 // an error is encountered if no staged task exists for the key or if
 // the resource associated with the task is locked.
-func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
+func (ctrl *ResourceController) StartTask(key string, taskModel Model, resourceModel Model) error {
 	ch, ok := ctrl.stage.Load(key)
 	if !ok {
 		return NoStagedTaskError
@@ -254,6 +282,7 @@ func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
 
 	if task := <-ch.(chan *Task); task != nil {
 		if ctrl.resources[key].Status == ResourceLocked {
+			<-ch.(chan *Task)
 			ch.(chan *Task) <- task
 			return ResourceUnavailableError
 		}
@@ -263,14 +292,28 @@ func (ctrl *ResourceController) StartTask(key string, taskModel Model) error {
 		}
 		ctrl.resources[key].Status = ResourceLocked
 		task.Status = StatusStarted
-		_, err := taskModel.Save(task)
-		return err
+		if _, err := taskModel.Save(task); err != nil {
+			return err
+		}
+		if _, err := resourceModel.Save(ctrl.resources[key]); err != nil {
+			return err
+		}
+
+		meta := make(map[string]interface{})
+		json.Unmarshal(task.Meta, &meta)
+		meta["_status"] = StatusStarted
+		meta["_id"] = task.Id
+		data, _ := json.Marshal(meta)
+		ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
+		log.Printf("started task [%s] with resource [%s]\n", task, key)
+
+		return nil
 	}
 
-	return nil
+	return NoStagedTaskError
 }
 
-// StageTask adds the pending task to the associated stage key.
+// StageTask adds the pending task to the associated task stage key.
 func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeStatus bool) {
 	_, ok := ctrl.stage.Load(task.Key)
 	if !ok {
@@ -280,6 +323,16 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 		ch := make(chan *Task, StageBuffer)
 		ch <- task
 		ctrl.stage.Store(task.Key, ch)
+
+		meta := make(map[string]interface{})
+		json.Unmarshal(task.Meta, &meta)
+		meta["_status"] = StatusPending
+		meta["_id"] = task.Id
+		data, _ := json.Marshal(meta)
+		if err := ctrl.Notify(NewEvent(TaskStatusChangedEvent, data)); err != nil {
+			log.Println(err)
+		}
+		log.Printf("staged task [%s]\n", task)
 	}
 }
 
@@ -288,11 +341,25 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 func (ctrl *ResourceController) StartStageLoop(taskModel Model) {
 	for {
 		for key := range ctrl.resources {
+			if _, ok := ctrl.stage.Load(key); ok {
+				continue
+			}
 			task, _ := ctrl.stageScheduledTask(key)
 			if task == nil {
 				task, _ = ctrl.stageQueuedTask(key)
 			}
 			if task != nil {
+				q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+				tasks, err := taskModel.Query(q, map[string]interface{}{"key": task.Id})
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				if len(tasks) < 1 {
+					log.Println(TaskNotFoundError, task)
+					continue
+				}
+				task := tasks[0].(*Task)
 				ctrl.StageTask(task, taskModel, true)
 			}
 		}
@@ -310,7 +377,7 @@ func (ctrl *ResourceController) stageQueuedTask(key string) (*Task, error) {
 	}
 	var task *Task
 	if result != nil {
-		json.Unmarshal(result.(json.RawMessage), &task)
+		mapstructure.Decode(result.(map[string]interface{}), &task)
 	}
 	return task, nil
 }
@@ -324,7 +391,7 @@ func (ctrl *ResourceController) stageScheduledTask(key string) (*Task, error) {
 	}
 	var task *Task
 	if result != nil {
-		json.Unmarshal(result.(json.RawMessage), &task)
+		mapstructure.Decode(result.(map[string]interface{}), &task)
 	}
 	return task, nil
 }

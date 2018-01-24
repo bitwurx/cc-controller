@@ -11,6 +11,8 @@ func main() {
 		"resources": &ResourceModel{},
 		"tasks":     &TaskModel{},
 	}
-	NewApiV1(models, NewResourceController(&JsonRPCServiceBroker{}), s)
+	ctrl := NewResourceController(&JsonRPCServiceBroker{})
+	NewApiV1(models, ctrl, s)
+	go ctrl.StartStageLoop(models["tasks"])
 	s.Start()
 }

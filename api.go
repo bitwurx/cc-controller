@@ -16,6 +16,7 @@ const (
 	GetTaskErrorCode            jrpc2.ErrorCode = -32006
 	ListPriorityQueueErrorCode  jrpc2.ErrorCode = -32007
 	NotificationFailedErrorCode jrpc2.ErrorCode = -32008
+	StartTaskErrorCode          jrpc2.ErrorCode = -32009
 )
 
 const (
@@ -25,10 +26,7 @@ const (
 	GetTaskErrorMsg            jrpc2.ErrorMsg = "error getting task"
 	ListPriorityQueueErrorMsg  jrpc2.ErrorMsg = "error listing priority queue"
 	NotificationFailedErrorMsg jrpc2.ErrorMsg = "error sending notification"
-)
-
-const (
-	EventTaskStatusChanged = "taskStatusChanged"
+	StartTaskErrorMsg          jrpc2.ErrorMsg = "error starting task"
 )
 
 type ApiV1 struct {
@@ -125,9 +123,45 @@ func (api *ApiV1) AddTask(params json.RawMessage) (interface{}, *jrpc2.ErrorObje
 	return 0, nil
 }
 
+type StartTaskParams struct {
+	Key *string `json:"key"`
+}
+
+func (params *StartTaskParams) FromPositional(args []interface{}) error {
+	if len(args) != 1 {
+		return errors.New("key parameter is required")
+	}
+	key := args[0].(string)
+	params.Key = &key
+
+	return nil
+}
+
+func (api *ApiV1) StartTask(params json.RawMessage) (interface{}, *jrpc2.ErrorObject) {
+	p := new(StartTaskParams)
+	if err := jrpc2.ParseParams(params, p); err != nil {
+		return nil, err
+	}
+	if p.Key == nil {
+		return nil, &jrpc2.ErrorObject{
+			Code:    jrpc2.InvalidParamsCode,
+			Message: jrpc2.InvalidParamsMsg,
+			Data:    "key is required",
+		}
+	}
+	if err := api.ctrl.StartTask(*p.Key, api.models["tasks"], api.models["resources"]); err != nil {
+		return nil, &jrpc2.ErrorObject{
+			Code:    StartTaskErrorCode,
+			Message: StartTaskErrorMsg,
+			Data:    err.Error(),
+		}
+	}
+	return 0, nil
+}
+
 type CompleteTaskParams struct {
-	Id     *string  `json:"id"`
-	Status *float64 `json:"status"`
+	Id     *string `json:"id"`
+	Status *string `json:"status"`
 }
 
 func (params *CompleteTaskParams) FromPositional(args []interface{}) error {
@@ -135,7 +169,7 @@ func (params *CompleteTaskParams) FromPositional(args []interface{}) error {
 		return errors.New("id, status parameters are required")
 	}
 	id := args[0].(string)
-	status := args[1].(float64)
+	status := args[1].(string)
 	params.Id = &id
 	params.Status = &status
 
@@ -161,18 +195,10 @@ func (api *ApiV1) CompleteTask(params json.RawMessage) (interface{}, *jrpc2.Erro
 			Data:    "status is required",
 		}
 	}
-	if err := api.ctrl.CompleteTask(*p.Id, int(*p.Status), api.models["tasks"]); err != nil {
+	if err := api.ctrl.CompleteTask(*p.Id, *p.Status, api.models["tasks"], api.models["resources"]); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    CompleteTaskErrorCode,
 			Message: CompleteTaskErrorMsg,
-			Data:    err.Error(),
-		}
-	}
-	evt := NewEvent(EventTaskStatusChanged, []byte(fmt.Sprintf(`{"status": "%d"}`, p.Status)))
-	if err := api.ctrl.Notify(evt); err != nil {
-		return nil, &jrpc2.ErrorObject{
-			Code:    NotificationFailedErrorCode,
-			Message: NotificationFailedErrorMsg,
 			Data:    err.Error(),
 		}
 	}
@@ -300,7 +326,7 @@ func NewApiV1(models map[string]Model, ctrl Controller, s *jrpc2.Server) *ApiV1 
 		v, _ := resource.(*Resource)
 		api.ctrl.AddResource(v.Name, models["resources"])
 	}
-	q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+	q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 	tasks, err := models["tasks"].Query(q, map[string]interface{}{})
 	for _, task := range tasks {
 		v, _ := task.(*Task)
@@ -313,6 +339,7 @@ func NewApiV1(models map[string]Model, ctrl Controller, s *jrpc2.Server) *ApiV1 
 	s.Register("getTask", jrpc2.Method{Method: api.GetTask})
 	s.Register("listPriorityQueue", jrpc2.Method{Method: api.ListPriorityQueue})
 	s.Register("listTimetable", jrpc2.Method{Method: api.ListTimetable})
+	s.Register("startTask", jrpc2.Method{Method: api.StartTask})
 
 	return api
 }

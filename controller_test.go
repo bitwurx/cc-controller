@@ -114,7 +114,7 @@ func TestControllerAddTask(t *testing.T) {
 	var table = []struct {
 		Task      *Task
 		Result    float64
-		Status    int
+		Status    string
 		BrokerErr *jrpc2.ErrorObject
 		Model     bool
 		ModelErr  error
@@ -170,6 +170,12 @@ func TestControllerAddTask(t *testing.T) {
 	for _, tt := range table {
 		var model *MockModel
 		broker := new(MockServiceBroker)
+		broker.On(
+			"Call",
+			StatusChangeNotifierHost,
+			"notify",
+			mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+		).Return(float64(0), nil).Maybe()
 		params := map[string]interface{}{"key": tt.Task.Key, "id": tt.Task.Id}
 		if tt.Task.RunAt != nil {
 			params["runAt"] = tt.Task.RunAt.Format(time.RFC3339)
@@ -393,7 +399,8 @@ func TestControllerStartTask(t *testing.T) {
 		Err            error
 		Model          bool
 		ModelErr       error
-		TaskStatus     int
+		ResourceErr    error
+		TaskStatus     string
 		ResourceStatus ResourceStatus
 	}{
 		{
@@ -402,6 +409,7 @@ func TestControllerStartTask(t *testing.T) {
 			&Resource{Name: "test", Status: ResourceFree},
 			nil,
 			true,
+			nil,
 			nil,
 			StatusStarted,
 			ResourceLocked,
@@ -412,6 +420,18 @@ func TestControllerStartTask(t *testing.T) {
 			&Resource{Name: "test", Status: ResourceFree},
 			modelErr,
 			true,
+			modelErr,
+			nil,
+			StatusStarted,
+			ResourceLocked,
+		},
+		{
+			"test",
+			&Task{Status: StatusPending},
+			&Resource{Name: "test", Status: ResourceFree},
+			modelErr,
+			true,
+			nil,
 			modelErr,
 			StatusStarted,
 			ResourceLocked,
@@ -423,6 +443,7 @@ func TestControllerStartTask(t *testing.T) {
 			NoStagedTaskError,
 			false,
 			nil,
+			nil,
 			StatusScheduled,
 			ResourceFree,
 		},
@@ -433,13 +454,21 @@ func TestControllerStartTask(t *testing.T) {
 			ResourceUnavailableError,
 			false,
 			nil,
+			nil,
 			StatusPending,
 			ResourceLocked,
 		},
 	}
 
 	for i, tt := range table {
-		ctrl := NewResourceController(nil)
+		broker := &MockServiceBroker{}
+		broker.On(
+			"Call",
+			StatusChangeNotifierHost,
+			"notify",
+			mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+		).Return(float64(0), nil).Maybe()
+		ctrl := NewResourceController(broker)
 		if tt.Task != nil {
 			ch := make(chan *Task, StageBuffer)
 			ch <- tt.Task
@@ -448,19 +477,21 @@ func TestControllerStartTask(t *testing.T) {
 		if tt.Resource != nil {
 			ctrl.resources[tt.Key] = tt.Resource
 		}
-		model := &MockModel{}
-		if tt.Model {
-			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
-		}
-		if err := ctrl.StartTask(tt.Key, model); err != nil && err != tt.Err {
+		taskModel := &MockModel{}
+		taskModel.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr).Maybe()
+		resourceModel := &MockModel{}
+		resourceModel.On("Save", tt.Resource).Return(DocumentMeta{}, tt.ResourceErr).Maybe()
+		if err := ctrl.StartTask(tt.Key, taskModel, resourceModel); err != nil && err != tt.Err {
 			t.Fatal(err)
 		}
 		if ctrl.resources[tt.Key] != nil && ctrl.resources[tt.Key].Status != tt.ResourceStatus {
 			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.Key].Status)
 		}
 		if tt.Model {
-			model.AssertExpectations(t)
+			taskModel.AssertExpectations(t)
+			resourceModel.AssertExpectations(t)
 		}
+		broker.AssertExpectations(t)
 	}
 }
 
@@ -471,12 +502,13 @@ func TestControllerCompleteTask(t *testing.T) {
 		TaskId         string
 		Tasks          []interface{}
 		Resource       *Resource
-		Status         int
+		Status         string
 		Err            error
 		Model          bool
 		ModelErr       error
+		ResourceErr    error
 		QueryErr       error
-		TaskStatus     int
+		TaskStatus     string
 		ResourceStatus ResourceStatus
 	}{
 		{
@@ -486,6 +518,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			StatusComplete,
 			nil,
 			true,
+			nil,
 			nil,
 			nil,
 			StatusComplete,
@@ -500,6 +533,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			true,
 			nil,
 			nil,
+			nil,
 			StatusComplete,
 			ResourceFree,
 		},
@@ -512,6 +546,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			false,
 			nil,
 			nil,
+			nil,
 			StatusQueued,
 			ResourceFree,
 		},
@@ -522,6 +557,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			StatusComplete,
 			modelErr,
 			true,
+			nil,
 			modelErr,
 			nil,
 			StatusComplete,
@@ -536,6 +572,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			true,
 			nil,
 			nil,
+			nil,
 			StatusCreated,
 			ResourceFree,
 		},
@@ -547,6 +584,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			queryErr,
 			true,
 			nil,
+			nil,
 			queryErr,
 			StatusCreated,
 			ResourceFree,
@@ -554,23 +592,34 @@ func TestControllerCompleteTask(t *testing.T) {
 	}
 
 	for i, tt := range table {
-		ctrl := NewResourceController(nil)
+		broker := &MockServiceBroker{}
+		broker.On(
+			"Call",
+			StatusChangeNotifierHost,
+			"notify",
+			mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+		).Return(float64(0), nil).Maybe()
+		ctrl := NewResourceController(broker)
 		if tt.Resource != nil {
 			ctrl.resources[tt.TaskId] = tt.Resource
 		}
-		model := &MockModel{}
+		taskModel := &MockModel{}
+		resourceModel := &MockModel{}
+		resourceModel.On("Save", tt.Resource).Return(DocumentMeta{}, tt.ResourceErr).Maybe()
 		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
-		model.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.Tasks, tt.QueryErr).Maybe()
-		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, tt.ModelErr).Maybe()
-		if err := ctrl.CompleteTask(tt.TaskId, tt.Status, model); err != nil && err != tt.Err {
+		taskModel.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.Tasks, tt.QueryErr).Maybe()
+		taskModel.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, tt.ModelErr).Maybe()
+		if err := ctrl.CompleteTask(tt.TaskId, tt.Status, taskModel, resourceModel); err != nil && err != tt.Err {
 			t.Fatal(err)
 		}
 		if ctrl.resources[tt.TaskId] != nil && ctrl.resources[tt.TaskId].Status != tt.ResourceStatus {
 			t.Fatalf("[%d] expected resource status %d, got %d", i, tt.ResourceStatus, ctrl.resources[tt.TaskId].Status)
 		}
 		if tt.Model {
-			model.AssertExpectations(t)
+			taskModel.AssertExpectations(t)
+			resourceModel.AssertExpectations(t)
 		}
+		broker.AssertExpectations(t)
 	}
 }
 
@@ -578,14 +627,14 @@ func TestControllerStagedQueuedTask(t *testing.T) {
 	var table = []struct {
 		Key       string
 		Priority  float64
-		Result    json.RawMessage
+		Result    map[string]interface{}
 		BrokerErr *jrpc2.ErrorObject
 		Err       error
 	}{
 		{
 			"test",
 			2.4,
-			[]byte(`{"_key":"test","priority":2.4}`),
+			map[string]interface{}{"_key": "test", "priority": 2.4},
 			nil,
 			nil,
 		},
@@ -607,7 +656,7 @@ func TestControllerStagedQueuedTask(t *testing.T) {
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
-		if tt.Result != nil && tt.Priority != task.Priority {
+		if task != nil && tt.Priority != task.Priority {
 			t.Fatalf("expected task priority to be %f, got %f", tt.Priority, task.Priority)
 		}
 		broker.AssertExpectations(t)
@@ -619,14 +668,14 @@ func TestControllerStageScheduledTask(t *testing.T) {
 	var table = []struct {
 		Key       string
 		RunAt     string
-		Result    json.RawMessage
+		Result    map[string]interface{}
 		BrokerErr *jrpc2.ErrorObject
 		Err       error
 	}{
 		{
 			"test",
 			now,
-			[]byte(fmt.Sprintf(`{"_key":"test", "runAt": "%s"}`, now)),
+			map[string]interface{}{"_key": "test", "runAt": time.Now()},
 			nil,
 			nil,
 		},
@@ -648,7 +697,7 @@ func TestControllerStageScheduledTask(t *testing.T) {
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
-		if tt.Result != nil && tt.RunAt != task.RunAt.Format(time.RFC3339) {
+		if task != nil && tt.RunAt != task.RunAt.Format(time.RFC3339) {
 			t.Fatalf("expected task run at to be %s, got %s", tt.RunAt, task.RunAt)
 		}
 		broker.AssertExpectations(t)
@@ -659,18 +708,22 @@ func TestControllerStartStageLoop(t *testing.T) {
 	table := []struct {
 		Key              string
 		Resources        []*Resource
-		QueueResponse    json.RawMessage
+		QueueResponse    interface{}
 		QueueErr         *jrpc2.ErrorObject
-		ScheduleResponse json.RawMessage
+		ScheduleResponse interface{}
 		ScheduleErr      *jrpc2.ErrorObject
-		Id               string
+		QueryResult      []interface{}
+		QueryErr         error
+		TaskId           string
 	}{
 		{
 			"test",
 			[]*Resource{{Name: "test"}},
 			nil,
 			nil,
-			[]byte(`{"_key": "abc123", "key": "test"}`),
+			map[string]interface{}{"_key": "abc123", "key": "test"},
+			nil,
+			[]interface{}{&Task{Id: "abc123", Key: "test"}},
 			nil,
 			"abc123",
 		},
@@ -681,14 +734,18 @@ func TestControllerStartStageLoop(t *testing.T) {
 			nil,
 			nil,
 			&jrpc2.ErrorObject{Message: "error"},
+			nil,
+			nil,
 			"",
 		},
 		{
 			"test",
 			[]*Resource{{Name: "test"}},
-			[]byte(`{"_key": "abc123", "key": "test"}`),
+			map[string]interface{}{"_key": "abc123", "key": "test"},
 			nil,
 			nil,
+			nil,
+			[]interface{}{&Task{Id: "abc123", Key: "test"}},
 			nil,
 			"abc123",
 		},
@@ -697,6 +754,8 @@ func TestControllerStartStageLoop(t *testing.T) {
 			[]*Resource{{Name: "test"}},
 			nil,
 			&jrpc2.ErrorObject{Message: "error"},
+			nil,
+			nil,
 			nil,
 			nil,
 			"",
@@ -706,9 +765,23 @@ func TestControllerStartStageLoop(t *testing.T) {
 	for _, tt := range table {
 		params := map[string]interface{}{"key": tt.Key}
 		model := &MockModel{}
-		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
+		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
 		broker := &MockServiceBroker{}
 		ctrl := NewResourceController(broker)
+		model.On("Query", q, map[string]interface{}{"key": tt.TaskId}).Return(tt.QueryResult, tt.QueryErr).Maybe().Run(func(args mock.Arguments) {
+			if tt.QueryErr != nil {
+				ch := make(chan *Task, StageBuffer)
+				ch <- nil
+				ctrl.stage.Store(tt.Key, ch)
+			}
+		})
+		model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
+		broker.On(
+			"Call",
+			StatusChangeNotifierHost,
+			"notify",
+			mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+		).Return(float64(0), nil).Maybe()
 		broker.On("Call", TimetableHost, "next", params).Return(tt.ScheduleResponse, tt.ScheduleErr).Maybe().Run(func(args mock.Arguments) {
 			if tt.ScheduleErr != nil {
 				ch := make(chan *Task, StageBuffer)
@@ -734,8 +807,8 @@ func TestControllerStartStageLoop(t *testing.T) {
 				break
 			}
 		}
-		if task != nil && task.Id != tt.Id {
-			t.Fatalf("expected task id to be %s", tt.Id)
+		if task != nil && task.Id != tt.TaskId {
+			t.Fatalf("expected task id to be %s", tt.TaskId)
 		}
 		broker.AssertExpectations(t)
 		model.AssertExpectations(t)
@@ -745,10 +818,18 @@ func TestControllerStartStageLoop(t *testing.T) {
 func TestStageTask(t *testing.T) {
 	model := &MockModel{}
 	model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
-	ctrl := NewResourceController(&MockServiceBroker{})
+	broker := &MockServiceBroker{}
+	broker.On(
+		"Call",
+		StatusChangeNotifierHost,
+		"notify",
+		mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+	).Return(float64(0), nil).Maybe()
+	ctrl := NewResourceController(broker)
 	ctrl.StageTask(&Task{Id: "abc123", Key: "test"}, model, true)
 	if _, ok := ctrl.stage.Load("test"); !ok {
 		t.Fatal("expected stage abc123 to be ok")
 	}
 	model.AssertExpectations(t)
+	broker.AssertExpectations(t)
 }

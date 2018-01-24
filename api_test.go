@@ -44,7 +44,7 @@ func TestAp1V1AddResource(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
@@ -119,7 +119,7 @@ func TestAp1V1AddTask(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
@@ -144,7 +144,7 @@ func TestAp1V1AddTask(t *testing.T) {
 func TestAp1V1CompleteTask(t *testing.T) {
 	var table = []struct {
 		Body      []byte
-		Key       string
+		TaskId    string
 		CallErr   error
 		Result    int
 		Notify    bool
@@ -153,7 +153,7 @@ func TestAp1V1CompleteTask(t *testing.T) {
 		ErrMsg    jrpc2.ErrorMsg
 	}{
 		{
-			[]byte(`{"id": "test", "status": 2}`),
+			[]byte(`{"id": "test", "status": "complete"}`),
 			"test",
 			nil,
 			0,
@@ -163,7 +163,7 @@ func TestAp1V1CompleteTask(t *testing.T) {
 			"",
 		},
 		{
-			[]byte(`["test2", 1]`),
+			[]byte(`["test2", "cancelled"]`),
 			"test2",
 			nil,
 			0,
@@ -203,7 +203,7 @@ func TestAp1V1CompleteTask(t *testing.T) {
 			jrpc2.InvalidParamsMsg,
 		},
 		{
-			[]byte(`["test", 4]`),
+			[]byte(`["test", "test"]`),
 			"test",
 			TaskNotStartedError,
 			-1,
@@ -213,7 +213,7 @@ func TestAp1V1CompleteTask(t *testing.T) {
 			CompleteTaskErrorMsg,
 		},
 		{
-			[]byte(`{"id": "test", "status": 5}`),
+			[]byte(`{"id": "test", "status": "complete"}`),
 			"test",
 			nil,
 			0,
@@ -225,16 +225,13 @@ func TestAp1V1CompleteTask(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
 		rescModel.On("FetchAll").Return(make([]interface{}, 0), nil)
 		ctrl := &MockController{}
-		ctrl.On("CompleteTask", tt.Key, mock.AnythingOfType("int"), taskModel).Return(tt.CallErr)
-		if tt.Notify == true {
-			ctrl.On("Notify", mock.MatchedBy(func(e *Event) bool { return e.Kind == EventTaskStatusChanged })).Return(tt.NotifyErr)
-		}
+		ctrl.On("CompleteTask", tt.TaskId, mock.AnythingOfType("string"), taskModel, rescModel).Return(tt.CallErr)
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
 		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
 		result, errObj := api.CompleteTask(tt.Body)
@@ -278,7 +275,7 @@ func TestAp1V1GetTask(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
@@ -360,7 +357,7 @@ func TestApiV1ListPriorityQueue(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
@@ -442,7 +439,7 @@ func TestApiV1ListTimetable(t *testing.T) {
 	}
 
 	for _, tt := range table {
-		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 2 RETURN t", CollectionTasks)
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
 		taskModel := &MockModel{}
 		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
 		rescModel := &MockModel{}
@@ -457,6 +454,112 @@ func TestApiV1ListTimetable(t *testing.T) {
 		}
 		if result != nil && result.(map[string]interface{})["_key"] != tt.Result["_key"] {
 			t.Fatalf("expected key to be %d, go %d", tt.Result["_key"], result.(map[string]interface{})["_key"])
+		}
+		if errObj == nil || errObj.Code != jrpc2.InvalidParamsCode {
+			ctrl.AssertExpectations(t)
+		}
+	}
+}
+
+func TestAp1V1StartTask(t *testing.T) {
+	var table = []struct {
+		Body      []byte
+		Key       string
+		CallErr   error
+		Result    int
+		Notify    bool
+		NotifyErr error
+		ErrCode   jrpc2.ErrorCode
+		ErrMsg    jrpc2.ErrorMsg
+	}{
+		{
+			[]byte(`{"key": "test"}`),
+			"test",
+			nil,
+			0,
+			true,
+			nil,
+			-1,
+			"",
+		},
+		{
+			[]byte(`["test2"]`),
+			"test2",
+			nil,
+			0,
+			true,
+			nil,
+			-1,
+			"",
+		},
+		{
+			[]byte(`[]`),
+			"",
+			nil,
+			0,
+			true,
+			nil,
+			jrpc2.InvalidParamsCode,
+			jrpc2.InvalidParamsMsg,
+		},
+		{
+			[]byte(`{"keys": "test"}`),
+			"",
+			nil,
+			0,
+			true,
+			nil,
+			jrpc2.InvalidParamsCode,
+			jrpc2.InvalidParamsMsg,
+		},
+		{
+			[]byte(`["", 2]`),
+			"",
+			nil,
+			0,
+			true,
+			nil,
+			jrpc2.InvalidParamsCode,
+			jrpc2.InvalidParamsMsg,
+		},
+		{
+			[]byte(`["test"]`),
+			"test",
+			TaskAlreadyStartedError,
+			-1,
+			false,
+			nil,
+			StartTaskErrorCode,
+			StartTaskErrorMsg,
+		},
+		{
+			[]byte(`{"key": "test"}`),
+			"test",
+			nil,
+			0,
+			true,
+			NotificationFailedError,
+			NotificationFailedErrorCode,
+			NotificationFailedErrorMsg,
+		},
+	}
+
+	for _, tt := range table {
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
+		taskModel := &MockModel{}
+		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
+		rescModel := &MockModel{}
+		rescModel.On("FetchAll").Return(make([]interface{}, 0), nil)
+		ctrl := &MockController{}
+		ctrl.On("StartTask", tt.Key, taskModel, rescModel).Return(tt.CallErr)
+		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		result, errObj := api.StartTask(tt.Body)
+		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
+			t.Fatal(errObj.Message)
+		}
+		if result != nil && result != tt.Result {
+			t.Fatalf("expected result to be %d, go %d", tt.Result, result)
 		}
 		if errObj == nil || errObj.Code != jrpc2.InvalidParamsCode {
 			ctrl.AssertExpectations(t)

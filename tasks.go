@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	StatusCreated   = iota // created task status.
-	StatusQueued           // queued task status.
-	StatusPending          // pending task status.
-	StatusScheduled        // queue scheduled status.
-	StatusStarted          // started task status.
-	StatusComplete         // complete task status.
-	StatusCancelled        // cancelled status.
+	StatusCreated   = "created"   // created task status.
+	StatusQueued    = "queued"    // queued task status.
+	StatusPending   = "pending"   // pending task status.
+	StatusScheduled = "scheduled" // queue scheduled status.
+	StatusStarted   = "started"   // started task status.
+	StatusComplete  = "complete"  // complete task status.
+	StatusCancelled = "cancelled" // cancelled status.
 )
 
 // TaskStat stores a runtime for a task.
@@ -48,12 +48,12 @@ type Task struct {
 	// RunAt is a static point in time execution time.
 	// Status is the execution status of the task.
 	Created  time.Time       `json:"created"`
-	Id       string          `json:"_key"`
+	Id       string          `json:"_key" mapstructure:"_key"`
 	Key      string          `json:"key"`
 	Meta     json.RawMessage `json:"meta;omitempty"`
 	Priority float64         `json:"priority"`
 	RunAt    *time.Time      `json:"runAt;omitempty"`
-	Status   int             `json:"status"`
+	Status   string          `json:"status"`
 }
 
 // NewTask returns an initialized task instance.
@@ -65,7 +65,7 @@ func NewTask(data []byte) *Task {
 }
 
 // ChangeStatus changes the status of the task and saves the task.
-func (task *Task) ChangeStatus(taskModel Model, status int) error {
+func (task *Task) ChangeStatus(taskModel Model, status string) error {
 	task.Status = status
 	_, err := task.Save(taskModel)
 	return err

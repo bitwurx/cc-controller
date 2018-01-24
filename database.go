@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -226,7 +225,6 @@ func InitDatabase() {
 	if err != nil {
 		panic(err)
 	}
-	log.Println("initializing database...")
 
 	for {
 		if exists, err := client.DatabaseExists(nil, name); err == nil {
