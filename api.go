@@ -143,14 +143,14 @@ func (api *ApiV1) StartTask(params json.RawMessage) (interface{}, *jrpc2.ErrorOb
 		return nil, err
 	}
 	if p.Key == nil {
-		return nil, &jrpc2.ErrorObject{
+		return -1, &jrpc2.ErrorObject{
 			Code:    jrpc2.InvalidParamsCode,
 			Message: jrpc2.InvalidParamsMsg,
 			Data:    "key is required",
 		}
 	}
 	if err := api.ctrl.StartTask(*p.Key, api.models["tasks"], api.models["resources"]); err != nil {
-		return nil, &jrpc2.ErrorObject{
+		return -1, &jrpc2.ErrorObject{
 			Code:    StartTaskErrorCode,
 			Message: StartTaskErrorMsg,
 			Data:    err.Error(),

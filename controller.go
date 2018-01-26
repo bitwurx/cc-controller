@@ -328,6 +328,7 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 		json.Unmarshal(task.Meta, &meta)
 		meta["_status"] = StatusPending
 		meta["_id"] = task.Id
+		meta["_key"] = task.Key
 		data, _ := json.Marshal(meta)
 		if err := ctrl.Notify(NewEvent(TaskStatusChangedEvent, data)); err != nil {
 			log.Println(err)
