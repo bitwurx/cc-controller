@@ -392,6 +392,7 @@ func (ctrl *ResourceController) stageScheduledTask(key string) (*Task, error) {
 	}
 	var task *Task
 	if result != nil {
+		delete(result.(map[string]interface{}), "runAt")
 		mapstructure.Decode(result.(map[string]interface{}), &task)
 	}
 	return task, nil

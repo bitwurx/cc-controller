@@ -433,8 +433,8 @@ func TestApiV1ListTimetable(t *testing.T) {
 			"test",
 			QueueNotFoundError,
 			nil,
-			ListPriorityQueueErrorCode,
-			ListPriorityQueueErrorMsg,
+			ListTimetableErrorCode,
+			ListTimetableErrorMsg,
 		},
 	}
 

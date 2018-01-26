@@ -15,8 +15,9 @@ const (
 	CompleteTaskErrorCode       jrpc2.ErrorCode = -32005
 	GetTaskErrorCode            jrpc2.ErrorCode = -32006
 	ListPriorityQueueErrorCode  jrpc2.ErrorCode = -32007
-	NotificationFailedErrorCode jrpc2.ErrorCode = -32008
-	StartTaskErrorCode          jrpc2.ErrorCode = -32009
+	ListTimetableErrorCode      jrpc2.ErrorCode = -32008
+	NotificationFailedErrorCode jrpc2.ErrorCode = -32009
+	StartTaskErrorCode          jrpc2.ErrorCode = -32010
 )
 
 const (
@@ -25,6 +26,7 @@ const (
 	CompleteTaskErrorMsg       jrpc2.ErrorMsg = "error completing task"
 	GetTaskErrorMsg            jrpc2.ErrorMsg = "error getting task"
 	ListPriorityQueueErrorMsg  jrpc2.ErrorMsg = "error listing priority queue"
+	ListTimetableErrorMsg      jrpc2.ErrorMsg = "error list timetable"
 	NotificationFailedErrorMsg jrpc2.ErrorMsg = "error sending notification"
 	StartTaskErrorMsg          jrpc2.ErrorMsg = "error starting task"
 )
@@ -308,8 +310,8 @@ func (api *ApiV1) ListTimetable(params json.RawMessage) (interface{}, *jrpc2.Err
 	queue, err := api.ctrl.ListTimetable(*p.Key)
 	if err != nil {
 		return nil, &jrpc2.ErrorObject{
-			Code:    ListPriorityQueueErrorCode,
-			Message: ListPriorityQueueErrorMsg,
+			Code:    ListTimetableErrorCode,
+			Message: ListTimetableErrorMsg,
 			Data:    err.Error(),
 		}
 	}
