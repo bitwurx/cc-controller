@@ -47,7 +47,6 @@ The ArangoDB username.
 
 The ArangoDB user password.
 
-
 ### JSON-RPC 2.0 HTTP API - Method Reference
 
 This service uses the [JSON-RPC 2.0 Spec](http://www.jsonrpc.org/specification) over HTTP for its API.

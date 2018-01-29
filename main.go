@@ -6,7 +6,7 @@ import (
 
 func main() {
 	InitDatabase()
-	s := jrpc2.NewServer(":8888", "/rpc")
+	s := jrpc2.NewServer(":8080", "/rpc")
 	models := map[string]Model{
 		"resources": &ResourceModel{},
 		"tasks":     &TaskModel{},

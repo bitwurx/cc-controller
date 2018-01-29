@@ -16,6 +16,7 @@ const (
 	StatusStarted   = "started"   // started task status.
 	StatusComplete  = "complete"  // complete task status.
 	StatusCancelled = "cancelled" // cancelled status.
+	StatusError     = "error"     // error status.
 )
 
 // TaskStat stores a runtime for a task.
@@ -50,9 +51,9 @@ type Task struct {
 	Created  time.Time       `json:"created"`
 	Id       string          `json:"_key" mapstructure:"_key"`
 	Key      string          `json:"key"`
-	Meta     json.RawMessage `json:"meta;omitempty"`
+	Meta     json.RawMessage `json:"meta,omitempty"`
 	Priority float64         `json:"priority"`
-	RunAt    *time.Time      `json:"runAt;omitempty"`
+	RunAt    *time.Time      `json:"runAt,omitempty"`
 	Status   string          `json:"status"`
 }
 
