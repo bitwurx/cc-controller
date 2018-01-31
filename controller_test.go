@@ -664,7 +664,6 @@ func TestControllerStagedQueuedTask(t *testing.T) {
 }
 
 func TestControllerStageScheduledTask(t *testing.T) {
-	now := time.Now().Format(time.RFC3339)
 	var table = []struct {
 		Key       string
 		RunAt     string
@@ -674,7 +673,7 @@ func TestControllerStageScheduledTask(t *testing.T) {
 	}{
 		{
 			"test",
-			now,
+			time.Now().Format(time.RFC3339),
 			map[string]interface{}{"_key": "test", "runAt": time.Now()},
 			nil,
 			nil,
@@ -697,7 +696,7 @@ func TestControllerStageScheduledTask(t *testing.T) {
 		if err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
-		if task != nil && tt.RunAt != task.RunAt.Format(time.RFC3339) {
+		if task != nil && task.RunAt != nil && tt.RunAt != task.RunAt.Format(time.RFC3339) {
 			t.Fatalf("expected task run at to be %s, got %s", tt.RunAt, task.RunAt)
 		}
 		broker.AssertExpectations(t)
