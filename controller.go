@@ -107,7 +107,7 @@ type Controller interface {
 	ListPriorityQueue(string) (map[string]interface{}, error)
 	ListTimetable(string) (map[string]interface{}, error)
 	Notify(*Event) error
-	RemoveTask(string, string, Model) error
+	RemoveTask(string, Model) error
 	StageTask(*Task, Model, bool)
 	StartTask(string, Model, Model) error
 }
@@ -269,7 +269,7 @@ func (ctrl *ResourceController) Notify(evt *Event) error {
 	return nil
 }
 
-func (ctrl *ResourceController) RemoveTask(key string, id string, taskModel Model) error {
+func (ctrl *ResourceController) RemoveTask(id string, taskModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
 

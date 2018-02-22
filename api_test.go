@@ -463,7 +463,6 @@ func TestApiV1ListTimetable(t *testing.T) {
 
 func TestAp1V1RemoveTask(t *testing.T) {
 	var table = []struct {
-		Key     string
 		Id      string
 		Body    []byte
 		Result  int
@@ -472,16 +471,14 @@ func TestAp1V1RemoveTask(t *testing.T) {
 		ErrMsg  jrpc2.ErrorMsg
 	}{
 		{
-			"test",
 			"abc123",
-			[]byte(`{"key": "test", "id": "abc123"}`),
+			[]byte(`{"id": "abc123"}`),
 			0,
 			nil,
 			-1,
 			"",
 		},
 		{
-			"test",
 			"abc123",
 			[]byte(`{"key": "test"}`),
 			0,
@@ -490,18 +487,16 @@ func TestAp1V1RemoveTask(t *testing.T) {
 			jrpc2.InvalidParamsMsg,
 		},
 		{
-			"test",
 			"abc123",
-			[]byte(`{"key": "test", "id": 0}`),
+			[]byte(`{"id": 0}`),
 			0,
 			nil,
 			jrpc2.InvalidParamsCode,
 			jrpc2.InvalidParamsMsg,
 		},
 		{
-			"test",
 			"abc123",
-			[]byte(`{"key": "test", "id": "abc123"}`),
+			[]byte(`{"id": "abc123"}`),
 			-1,
 			TaskRemoveFailedError,
 			RemoveTaskErrorCode,
@@ -517,7 +512,7 @@ func TestAp1V1RemoveTask(t *testing.T) {
 		rescModel.On("FetchAll").Return(make([]interface{}, 0), nil)
 		models := map[string]Model{"tasks": taskModel, "resources": rescModel}
 		ctrl := &MockController{}
-		ctrl.On("RemoveTask", tt.Key, tt.Id, taskModel).Return(tt.CallErr).Once()
+		ctrl.On("RemoveTask", tt.Id, taskModel).Return(tt.CallErr).Once()
 		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
 		result, errObj := api.RemoveTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {

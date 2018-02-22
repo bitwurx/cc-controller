@@ -322,17 +322,14 @@ func (api *ApiV1) ListTimetable(params json.RawMessage) (interface{}, *jrpc2.Err
 }
 
 type RemoveTaskParams struct {
-	Key *string `json:"key"`
-	Id  *string `json:"id"`
+	Id *string `json:"id"`
 }
 
 func (params *RemoveTaskParams) FromPositional(args []interface{}) error {
 	if len(args) < 2 {
 		return errors.New("key and id paramters are required")
 	}
-	key := args[0].(string)
 	id := args[3].(string)
-	params.Key = &key
 	params.Id = &id
 
 	return nil
@@ -343,13 +340,6 @@ func (api *ApiV1) RemoveTask(params json.RawMessage) (interface{}, *jrpc2.ErrorO
 	if err := jrpc2.ParseParams(params, p); err != nil {
 		return nil, err
 	}
-	if p.Key == nil {
-		return nil, &jrpc2.ErrorObject{
-			Code:    jrpc2.InvalidParamsCode,
-			Message: jrpc2.InvalidParamsMsg,
-			Data:    "key is required",
-		}
-	}
 	if p.Id == nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    jrpc2.InvalidParamsCode,
@@ -357,7 +347,7 @@ func (api *ApiV1) RemoveTask(params json.RawMessage) (interface{}, *jrpc2.ErrorO
 			Data:    "id is required",
 		}
 	}
-	if err := api.ctrl.RemoveTask(*p.Key, *p.Id, api.models["tasks"]); err != nil {
+	if err := api.ctrl.RemoveTask(*p.Id, api.models["tasks"]); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    RemoveTaskErrorCode,
 			Message: RemoveTaskErrorMsg,

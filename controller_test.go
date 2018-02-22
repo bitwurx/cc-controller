@@ -962,7 +962,7 @@ func TestControllerRemoveTask(t *testing.T) {
 		broker.On("Call", TimetableHost, "remove", params).Return(tt.Result, tt.BrokerErr).Maybe()
 		broker.On("Call", PriorityQueueHost, "remove", params).Return(tt.Result, tt.BrokerErr).Maybe()
 		ctrl := NewResourceController(broker)
-		if err := ctrl.RemoveTask(tt.Key, tt.Id, model); err != nil && err.Error() != tt.Err.Error() {
+		if err := ctrl.RemoveTask(tt.Id, model); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
 		broker.AssertExpectations(t)

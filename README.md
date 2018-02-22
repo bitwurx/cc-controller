@@ -1,6 +1,6 @@
 # Concord Controller
 
-Concord Controller handles user requests and manages the interactions of the individual components of the concord service.
+Concord Controller (CC) handles user requests and manages the interactions of the individual components of the concord service.
 
 ### Usage
 To build the docker image run:
@@ -121,5 +121,19 @@ key - (*String*) the priority queue key.
 key - (*String*) the timetable key.
 
 #### Returns:
+
 (*Number*) the fetched timetable
 
+---
+#### removeTask(id) : remove a task
+---
+
+#### Parameters:
+
+id - (*String*) the id of the task.
+
+#### Returns:
+(*Number*) 0 on success or -1 on failure
+
+
+*This method only succeeds on tasks that are not yet started*
