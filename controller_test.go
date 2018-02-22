@@ -573,7 +573,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			nil,
 			nil,
 			nil,
-			StatusCreated,
+			StatusPending,
 			ResourceFree,
 		},
 		{
@@ -586,7 +586,7 @@ func TestControllerCompleteTask(t *testing.T) {
 			nil,
 			nil,
 			queryErr,
-			StatusCreated,
+			StatusPending,
 			ResourceFree,
 		},
 	}
@@ -814,7 +814,7 @@ func TestControllerStartStageLoop(t *testing.T) {
 	}
 }
 
-func TestStageTask(t *testing.T) {
+func TestControllerStageTask(t *testing.T) {
 	model := &MockModel{}
 	model.On("Save", mock.AnythingOfType("*main.Task")).Return(DocumentMeta{}, nil).Maybe()
 	broker := &MockServiceBroker{}
@@ -831,4 +831,141 @@ func TestStageTask(t *testing.T) {
 	}
 	model.AssertExpectations(t)
 	broker.AssertExpectations(t)
+}
+
+func TestControllerRemoveTask(t *testing.T) {
+	var table = []struct {
+		Key         string
+		Id          string
+		Result      float64
+		Status      string
+		BrokerErr   *jrpc2.ErrorObject
+		ModelErr    error
+		QueryResult []interface{}
+		QueryErr    error
+		Err         error
+	}{
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusCancelled,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusQueued}},
+			nil,
+			nil,
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusCancelled,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusScheduled}},
+			nil,
+			nil,
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusCancelled,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusPending}},
+			nil,
+			nil,
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusStarted,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusStarted}},
+			nil,
+			TaskRemoveFailedError,
+		},
+		{
+			"test123",
+			"abc123",
+			-1,
+			StatusStarted,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusPending}},
+			nil,
+			TaskRemoveFailedError,
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusStarted,
+			nil,
+			nil,
+			[]interface{}{},
+			nil,
+			TaskNotFoundError,
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusStarted,
+			nil,
+			nil,
+			[]interface{}{},
+			errors.New("query error"),
+			errors.New("query error"),
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusStarted,
+			nil,
+			errors.New("model error"),
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusQueued}},
+			nil,
+			errors.New("model error"),
+		},
+		{
+			"test123",
+			"abc123",
+			0,
+			StatusCancelled,
+			nil,
+			nil,
+			[]interface{}{&Task{Key: "test123", Id: "abc123", Status: StatusPending}},
+			nil,
+			nil,
+		},
+	}
+
+	for _, tt := range table {
+		model := new(MockModel)
+		q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+		model.On("Query", q, map[string]interface{}{"key": tt.Id}).Return(tt.QueryResult, tt.QueryErr).Maybe()
+		model.On("Remove", mock.AnythingOfType("*main.Task")).Return(tt.ModelErr).Maybe()
+		broker := new(MockServiceBroker)
+		broker.On(
+			"Call",
+			StatusChangeNotifierHost,
+			"notify",
+			mock.MatchedBy(func(p map[string]interface{}) bool { return p["kind"] == "taskStatusChanged" }),
+		).Return(float64(0), nil).Maybe()
+		params := map[string]interface{}{"key": tt.Key, "id": tt.Id}
+		broker.On("Call", TimetableHost, "remove", params).Return(tt.Result, tt.BrokerErr).Maybe()
+		broker.On("Call", PriorityQueueHost, "remove", params).Return(tt.Result, tt.BrokerErr).Maybe()
+		ctrl := NewResourceController(broker)
+		if err := ctrl.RemoveTask(tt.Key, tt.Id, model); err != nil && err.Error() != tt.Err.Error() {
+			t.Fatal(err)
+		}
+		broker.AssertExpectations(t)
+		model.AssertExpectations(t)
+	}
 }

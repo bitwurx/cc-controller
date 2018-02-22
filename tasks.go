@@ -9,14 +9,13 @@ import (
 )
 
 const (
-	StatusCreated   = "created"   // created task status.
 	StatusQueued    = "queued"    // queued task status.
-	StatusPending   = "pending"   // pending task status.
 	StatusScheduled = "scheduled" // queue scheduled status.
-	StatusStarted   = "started"   // started task status.
-	StatusComplete  = "complete"  // complete task status.
+	StatusPending   = "pending"   // pending task status.
 	StatusCancelled = "cancelled" // cancelled status.
+	StatusStarted   = "started"   // started task status.
 	StatusError     = "error"     // error status.
+	StatusComplete  = "complete"  // complete task status.
 )
 
 // TaskStat stores a runtime for a task.

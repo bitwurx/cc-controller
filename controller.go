@@ -35,6 +35,7 @@ var (
 	ResourceUnavailableError = errors.New("resource unavailable")
 	ResourceExistsError      = errors.New("resource exists")
 	TaskAddFailedError       = errors.New("task add failed")
+	TaskRemoveFailedError    = errors.New("task remove failed")
 	TaskAlreadyStartedError  = errors.New("task already started")
 	TaskNotFoundError        = errors.New("task not found")
 	TaskNotStartedError      = errors.New("task not started")
@@ -106,6 +107,7 @@ type Controller interface {
 	ListPriorityQueue(string) (map[string]interface{}, error)
 	ListTimetable(string) (map[string]interface{}, error)
 	Notify(*Event) error
+	RemoveTask(string, string, Model) error
 	StageTask(*Task, Model, bool)
 	StartTask(string, Model, Model) error
 }
@@ -172,7 +174,7 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 
 	meta := make(map[string]interface{})
 	json.Unmarshal(task.Meta, &meta)
-	meta["_status"] = StatusCreated
+	meta["_status"] = status
 	meta["_id"] = task.Id
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
@@ -264,6 +266,54 @@ func (ctrl *ResourceController) Notify(evt *Event) error {
 	if result != 0 {
 		return NotificationFailedError
 	}
+	return nil
+}
+
+func (ctrl *ResourceController) RemoveTask(key string, id string, taskModel Model) error {
+	var result interface{}
+	var errObj *jrpc2.ErrorObject
+
+	q := fmt.Sprintf(`FOR t IN %s FILTER t._key == @key RETURN t`, CollectionTasks)
+	tasks, err := taskModel.Query(q, map[string]interface{}{"key": id})
+	if err != nil {
+		return err
+	}
+	if len(tasks) < 1 {
+		return TaskNotFoundError
+	}
+	task := tasks[0].(*Task)
+	if task.Status != StatusQueued && task.Status != StatusScheduled && task.Status != StatusPending {
+		return TaskRemoveFailedError
+	}
+	params := map[string]interface{}{"key": task.Key, "id": task.Id}
+	switch task.Status {
+	case StatusQueued:
+		result, errObj = ctrl.broker.Call(PriorityQueueHost, "remove", params)
+	case StatusScheduled:
+		result, errObj = ctrl.broker.Call(TimetableHost, "remove", params)
+	}
+	if errObj != nil {
+		return errors.New(string(errObj.Message))
+	}
+	if result != nil {
+		result = int(result.(float64))
+		if result != 0 {
+			return TaskRemoveFailedError
+		}
+	}
+	task.Status = StatusCancelled
+	if err := taskModel.Remove(task); err != nil {
+		return err
+	}
+
+	meta := make(map[string]interface{})
+	json.Unmarshal(task.Meta, &meta)
+	meta["_status"] = StatusCancelled
+	meta["_id"] = task.Id
+	data, _ := json.Marshal(meta)
+	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
+	log.Printf("removed task [%s]\n", task)
+
 	return nil
 }
 

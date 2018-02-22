@@ -461,6 +461,77 @@ func TestApiV1ListTimetable(t *testing.T) {
 	}
 }
 
+func TestAp1V1RemoveTask(t *testing.T) {
+	var table = []struct {
+		Key     string
+		Id      string
+		Body    []byte
+		Result  int
+		CallErr error
+		ErrCode jrpc2.ErrorCode
+		ErrMsg  jrpc2.ErrorMsg
+	}{
+		{
+			"test",
+			"abc123",
+			[]byte(`{"key": "test", "id": "abc123"}`),
+			0,
+			nil,
+			-1,
+			"",
+		},
+		{
+			"test",
+			"abc123",
+			[]byte(`{"key": "test"}`),
+			0,
+			nil,
+			jrpc2.InvalidParamsCode,
+			jrpc2.InvalidParamsMsg,
+		},
+		{
+			"test",
+			"abc123",
+			[]byte(`{"key": "test", "id": 0}`),
+			0,
+			nil,
+			jrpc2.InvalidParamsCode,
+			jrpc2.InvalidParamsMsg,
+		},
+		{
+			"test",
+			"abc123",
+			[]byte(`{"key": "test", "id": "abc123"}`),
+			-1,
+			TaskRemoveFailedError,
+			RemoveTaskErrorCode,
+			RemoveTaskErrorMsg,
+		},
+	}
+
+	for _, tt := range table {
+		q := fmt.Sprintf("FOR t IN %s FILTER t.status == 'pending' RETURN t", CollectionTasks)
+		taskModel := &MockModel{}
+		taskModel.On("Query", q, map[string]interface{}{}).Return(make([]interface{}, 0), nil)
+		rescModel := &MockModel{}
+		rescModel.On("FetchAll").Return(make([]interface{}, 0), nil)
+		models := map[string]Model{"tasks": taskModel, "resources": rescModel}
+		ctrl := &MockController{}
+		ctrl.On("RemoveTask", tt.Key, tt.Id, taskModel).Return(tt.CallErr).Once()
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		result, errObj := api.RemoveTask(tt.Body)
+		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
+			t.Fatal(errObj.Message)
+		}
+		if result != nil && result != tt.Result {
+			t.Fatalf("expected %d to be %d", result, tt.Result)
+		}
+		if errObj == nil || errObj.Code != jrpc2.InvalidParamsCode {
+			ctrl.AssertExpectations(t)
+		}
+	}
+}
+
 func TestAp1V1StartTask(t *testing.T) {
 	var table = []struct {
 		Body      []byte

@@ -138,6 +138,20 @@ func TestTaskModelSave(t *testing.T) {
 	}
 }
 
+func TestTaskModelRemove(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	task := NewTask([]byte(`{"meta": {"id": 123}, "Priority": 22.5, "key": "tb3"}`))
+	model := new(TaskModel)
+	if _, err := model.Save(task); err != nil {
+		t.Fatal(err)
+	}
+	if err := model.Remove(task); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestResourceModelCreate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test")

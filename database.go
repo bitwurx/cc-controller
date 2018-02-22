@@ -27,6 +27,7 @@ type Model interface {
 	Create() error
 	FetchAll() ([]interface{}, error)
 	Query(string, interface{}) ([]interface{}, error)
+	Remove(interface{}) error
 	Save(interface{}) (DocumentMeta, error)
 }
 
@@ -74,6 +75,10 @@ func (model *TaskStatModel) Query(q string, vars interface{}) ([]interface{}, er
 		taskStats = append(taskStats, taskStat)
 	}
 	return taskStats, nil
+}
+
+func (model *TaskStatModel) Remove(taskStat interface{}) error {
+	return nil
 }
 
 // Save creates a document in the task stats collection.
@@ -126,6 +131,19 @@ func (model *TaskModel) Query(q string, vars interface{}) ([]interface{}, error)
 		tasks = append(tasks, task)
 	}
 	return tasks, nil
+}
+
+func (model *TaskModel) Remove(task interface{}) error {
+	col, err := db.Collection(nil, CollectionTasks)
+	if err != nil {
+		return err
+	}
+	v, _ := task.(*Task)
+	if _, err := col.RemoveDocument(nil, v.Id); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Save creates a document in the tasks collection.
@@ -182,6 +200,10 @@ func (model *ResourceModel) FetchAll() ([]interface{}, error) {
 
 func (model *ResourceModel) Query(q string, vars interface{}) ([]interface{}, error) {
 	return make([]interface{}, 0), nil
+}
+
+func (model *ResourceModel) Remove(res interface{}) error {
+	return nil
 }
 
 func (model *ResourceModel) Save(res interface{}) (DocumentMeta, error) {
