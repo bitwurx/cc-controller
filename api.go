@@ -115,14 +115,15 @@ func (api *ApiV1) AddTask(params json.RawMessage) (interface{}, *jrpc2.ErrorObje
 		}
 	}
 	data, _ := json.Marshal(p)
-	if err := api.ctrl.AddTask(NewTask(data), api.models["tasks"]); err != nil {
+	task := NewTask(data)
+	if err := api.ctrl.AddTask(task, api.models["tasks"]); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    AddTaskErrorCode,
 			Message: AddTaskErrorMsg,
 			Data:    err.Error(),
 		}
 	}
-	return 0, nil
+	return task.Id, nil
 }
 
 type StartTaskParams struct {

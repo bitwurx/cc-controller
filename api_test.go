@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/bitwurx/jrpc2"
+	"github.com/satori/go.uuid"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -70,49 +71,42 @@ func TestAp1V1AddTask(t *testing.T) {
 	var table = []struct {
 		Body    []byte
 		CallErr error
-		Result  int
 		ErrCode jrpc2.ErrorCode
 		ErrMsg  jrpc2.ErrorMsg
 	}{
 		{
 			[]byte(`{"key": "test", "priority": 2.1}`),
 			nil,
-			0,
 			-1,
 			"",
 		},
 		{
 			[]byte(`{"key": "test", "priority": 2.1}`),
 			TaskAddFailedError,
-			-1,
 			AddTaskErrorCode,
 			AddTaskErrorMsg,
 		},
 		{
 			[]byte(`["test", {}, 2.1, "2017-01-01T12:00:00Z"]`),
 			nil,
-			0,
 			-1,
 			"",
 		},
 		{
 			[]byte(`["test", {}, 2.1, "2017-01-01T12:00:00Z", 8]`),
 			nil,
-			0,
 			jrpc2.InvalidParamsCode,
 			jrpc2.InvalidParamsMsg,
 		},
 		{
 			[]byte(`{"key": "test"}`),
 			nil,
-			0,
 			jrpc2.InvalidParamsCode,
 			jrpc2.InvalidParamsMsg,
 		},
 		{
 			[]byte(`{}`),
 			nil,
-			0,
 			jrpc2.InvalidParamsCode,
 			jrpc2.InvalidParamsMsg,
 		},
@@ -132,8 +126,14 @@ func TestAp1V1AddTask(t *testing.T) {
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
 		}
-		if result != nil && result != tt.Result {
-			t.Fatalf("expected result to be %d, go %d", tt.Result, result)
+		if result != nil {
+			id, err := uuid.FromString(result.(string))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if id.Version() != 1 {
+				t.Fatal("expected uuid version 1")
+			}
 		}
 		if errObj == nil || errObj.Code != jrpc2.InvalidParamsCode {
 			ctrl.AssertExpectations(t)
