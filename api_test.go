@@ -120,7 +120,7 @@ func TestAp1V1AddTask(t *testing.T) {
 		rescModel.On("FetchAll").Return(make([]interface{}, 0), nil)
 		models := map[string]Model{"tasks": taskModel, "resources": rescModel}
 		ctrl := &MockController{}
-		ctrl.On("AddTask", mock.AnythingOfType("*main.Task"), taskModel).Return(tt.CallErr).Once()
+		ctrl.On("AddTask", mock.AnythingOfType("*main.Task"), taskModel, rescModel).Return(tt.CallErr)
 		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
 		result, errObj := api.AddTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {

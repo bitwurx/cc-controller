@@ -112,20 +112,20 @@ func TestServiceBrokerCall(t *testing.T) {
 
 func TestControllerAddTask(t *testing.T) {
 	var table = []struct {
-		Task      *Task
-		Result    float64
-		Status    string
-		BrokerErr *jrpc2.ErrorObject
-		Model     bool
-		ModelErr  error
-		Err       error
+		Task         *Task
+		Result       float64
+		Status       string
+		BrokerErr    *jrpc2.ErrorObject
+		taskModelErr error
+		RescModelErr error
+		Err          error
 	}{
 		{
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			0,
 			StatusQueued,
 			nil,
-			true,
+			nil,
 			nil,
 			nil,
 		},
@@ -134,7 +134,7 @@ func TestControllerAddTask(t *testing.T) {
 			0,
 			StatusScheduled,
 			nil,
-			true,
+			nil,
 			nil,
 			nil,
 		},
@@ -143,7 +143,7 @@ func TestControllerAddTask(t *testing.T) {
 			-1,
 			StatusPending,
 			nil,
-			false,
+			nil,
 			nil,
 			TaskAddFailedError,
 		},
@@ -152,7 +152,7 @@ func TestControllerAddTask(t *testing.T) {
 			-1,
 			StatusPending,
 			&jrpc2.ErrorObject{Message: "broker error"},
-			false,
+			nil,
 			nil,
 			errors.New("broker error"),
 		},
@@ -161,14 +161,22 @@ func TestControllerAddTask(t *testing.T) {
 			0,
 			StatusQueued,
 			nil,
-			true,
+			errors.New("model error"),
+			nil,
+			errors.New("model error"),
+		},
+		{
+			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
+			0,
+			StatusQueued,
+			nil,
+			nil,
 			errors.New("model error"),
 			errors.New("model error"),
 		},
 	}
 
 	for _, tt := range table {
-		var model *MockModel
 		broker := new(MockServiceBroker)
 		broker.On(
 			"Call",
@@ -184,22 +192,20 @@ func TestControllerAddTask(t *testing.T) {
 			params["priority"] = tt.Task.Priority
 			broker.On("Call", PriorityQueueHost, "push", params).Return(tt.Result, tt.BrokerErr).Once()
 		}
-		if tt.Model {
-			model = new(MockModel)
-			model.On("Save", tt.Task).Return(DocumentMeta{}, tt.ModelErr)
-		}
+		taskModel := new(MockModel)
+		rescModel := new(MockModel)
+		taskModel.On("Save", tt.Task).Return(DocumentMeta{}, tt.taskModelErr).Maybe()
+		rescModel.On("Save", mock.AnythingOfType("*main.Resource")).Return(DocumentMeta{}, tt.RescModelErr).Maybe()
 		ctrl := NewResourceController(broker)
-		if err := ctrl.AddTask(tt.Task, model); err != nil && err.Error() != tt.Err.Error() {
+		if err := ctrl.AddTask(tt.Task, taskModel, rescModel); err != nil && err.Error() != tt.Err.Error() {
 			t.Fatal(err)
 		}
 		if tt.Task.Status != tt.Status {
 			t.Fatalf("expected task status to be %d, got %d", tt.Status, tt.Task.Status)
 		}
 		broker.AssertExpectations(t)
-
-		if tt.Model {
-			model.AssertExpectations(t)
-		}
+		taskModel.AssertExpectations(t)
+		rescModel.AssertExpectations(t)
 	}
 }
 

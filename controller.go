@@ -101,7 +101,7 @@ func NewEvent(kind string, meta []byte) *Event {
 
 type Controller interface {
 	AddResource(string, Model) error
-	AddTask(*Task, Model) error
+	AddTask(*Task, Model, Model) error
 	CompleteTask(string, string, Model, Model) error
 	GetTask(string, Model) (*Task, error)
 	ListPriorityQueue(string) (map[string]interface{}, error)
@@ -143,7 +143,7 @@ func (ctrl *ResourceController) AddResource(name string, taskModel Model) error 
 //
 // If the run at point in time is omitted the task is added to the
 // priority queue service for priority order execution.
-func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
+func (ctrl *ResourceController) AddTask(task *Task, taskModel Model, resourceModel Model) error {
 	var result interface{}
 	var errObj *jrpc2.ErrorObject
 	var status string
@@ -169,6 +169,9 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model) error {
 	}
 	task.Status = status
 	if _, err := taskModel.Save(task); err != nil {
+		return err
+	}
+	if _, err := resourceModel.Save(NewResource(task.Key)); err != nil {
 		return err
 	}
 

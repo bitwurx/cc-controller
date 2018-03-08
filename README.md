@@ -2,6 +2,17 @@
 
 Concord Controller (CC) handles user requests and manages the interactions of the individual components of the concord service.
 
+The CC supports two modes of task scheduling.
+
+**Priority**
+
+Priority scheduling places a task in priority order. The priorty is represented as a floating point number with low values having the highest priority (ie. 1.4 has higher priority than 2.7). 0 is the lowest possible priority.
+
+The CC tracks metrics of a given task using the task key. The last 10 run times of a task are recorded and averaged when scheduled for auto priority based on lowest run time.
+
+**Point in Time**
+
+
 ### Usage
 To build the docker image run:
 

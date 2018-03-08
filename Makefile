@@ -9,6 +9,11 @@ build:
 	@docker build -t concord/controller .
 	@rm main
 
+.PHONY: mock
+mock: 
+	@go get github.com/vektra/mockery/.../
+	@mockery -all -inpkg -testonly
+
 .PHONY: test
 test:
 	@docker run \

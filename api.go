@@ -118,7 +118,7 @@ func (api *ApiV1) AddTask(params json.RawMessage) (interface{}, *jrpc2.ErrorObje
 	}
 	data, _ := json.Marshal(p)
 	task := NewTask(data)
-	if err := api.ctrl.AddTask(task, api.models["tasks"]); err != nil {
+	if err := api.ctrl.AddTask(task, api.models["tasks"], api.models["resources"]); err != nil {
 		return nil, &jrpc2.ErrorObject{
 			Code:    AddTaskErrorCode,
 			Message: AddTaskErrorMsg,
