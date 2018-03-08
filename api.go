@@ -381,6 +381,7 @@ func NewApiV1(models map[string]Model, ctrl Controller, s *jrpc2.Server) *ApiV1 
 	s.Register("listPriorityQueue", jrpc2.Method{Method: api.ListPriorityQueue})
 	s.Register("listTimetable", jrpc2.Method{Method: api.ListTimetable})
 	s.Register("startTask", jrpc2.Method{Method: api.StartTask})
+	s.Register("removeTask", jrpc2.Method{Method: api.StartTask})
 
 	return api
 }
