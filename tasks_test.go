@@ -76,7 +76,7 @@ func TestNewTask(t *testing.T) {
 			t.Fatal("expected task created time to be in the past")
 		}
 		if task.RunAt != nil && task.RunAt.Format(time.RFC3339) != tt.RunAt.Format(time.RFC3339) {
-			t.Fatal("expected task run at time to be %v", tt.RunAt)
+			t.Fatalf("expected task run at time to be %v", tt.RunAt)
 		}
 		if task.Meta != nil {
 			if string(task.Meta) != string(tt.Meta) {
@@ -124,7 +124,7 @@ func TestTaskChangeStatus(t *testing.T) {
 			t.Fatal(err)
 		}
 		if task.Status != tt.Status {
-			t.Fatal("expected task status to be %d, got %d", tt.Status, task.Status)
+			t.Fatalf("expected task status to be %s, got %s", tt.Status, task.Status)
 		}
 		model.AssertExpectations(t)
 	}

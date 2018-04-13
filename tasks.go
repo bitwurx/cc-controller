@@ -9,6 +9,7 @@ import (
 )
 
 const (
+	StatusCreated   = "created"   // created task status.
 	StatusQueued    = "queued"    // queued task status.
 	StatusScheduled = "scheduled" // queue scheduled status.
 	StatusPending   = "pending"   // pending task status.

@@ -148,17 +148,22 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model, resourceMod
 	var errObj *jrpc2.ErrorObject
 	var status string
 
+	task.Status = StatusCreated
+	if _, err := taskModel.Save(task); err != nil {
+		return err
+	}
+
 	params := map[string]interface{}{"key": task.Key, "id": task.Id}
 	if task.RunAt != nil {
 		params["runAt"] = task.RunAt.Format(time.RFC3339)
 		result, errObj = ctrl.broker.Call(TimetableHost, "insert", params)
 		status = StatusScheduled
-		log.Printf("scheduled task [%s]\n", task)
+		log.Printf("scheduled task [%v]\n", task)
 	} else {
 		params["priority"] = task.Priority
 		result, errObj = ctrl.broker.Call(PriorityQueueHost, "push", params)
 		status = StatusQueued
-		log.Printf("queued task [%s]\n", task)
+		log.Printf("queued task [%v]\n", task)
 	}
 	if errObj != nil {
 		return errors.New(string(errObj.Message))
@@ -181,7 +186,7 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model, resourceMod
 	meta["_id"] = task.Id
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("created task [%s]\n", task)
+	log.Printf("created task [%v]\n", task)
 
 	return nil
 }
@@ -218,7 +223,7 @@ func (ctrl *ResourceController) CompleteTask(taskId string, status string, taskM
 	meta["_id"] = taskId
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("completed task [%s]\n", task)
+	log.Printf("completed task [%v]\n", task)
 
 	return nil
 }
@@ -315,7 +320,7 @@ func (ctrl *ResourceController) RemoveTask(id string, taskModel Model) error {
 	meta["_id"] = task.Id
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("removed task [%s]\n", task)
+	log.Printf("removed task [%v]\n", task)
 
 	return nil
 }
@@ -358,7 +363,7 @@ func (ctrl *ResourceController) StartTask(key string, taskModel Model, resourceM
 		meta["_id"] = task.Id
 		data, _ := json.Marshal(meta)
 		ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-		log.Printf("started task [%s] with resource [%s]\n", task, key)
+		log.Printf("started task [%v] with resource [%s]\n", task, key)
 
 		return nil
 	}
@@ -386,7 +391,7 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 		if err := ctrl.Notify(NewEvent(TaskStatusChangedEvent, data)); err != nil {
 			log.Println(err)
 		}
-		log.Printf("staged task [%s]\n", task)
+		log.Printf("staged task [%v]\n", task)
 	}
 }
 

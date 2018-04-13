@@ -141,7 +141,7 @@ func TestControllerAddTask(t *testing.T) {
 		{
 			NewTask([]byte(fmt.Sprintf(`{"key": "test123", runAt": %s}`, time.Now().Format(time.RFC3339)))),
 			-1,
-			StatusPending,
+			StatusCreated,
 			nil,
 			nil,
 			nil,
@@ -150,7 +150,7 @@ func TestControllerAddTask(t *testing.T) {
 		{
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			-1,
-			StatusPending,
+			StatusCreated,
 			&jrpc2.ErrorObject{Message: "broker error"},
 			nil,
 			nil,
@@ -159,7 +159,7 @@ func TestControllerAddTask(t *testing.T) {
 		{
 			NewTask([]byte(`{"key": "test123", priority": 12.3}`)),
 			0,
-			StatusQueued,
+			StatusCreated,
 			nil,
 			errors.New("model error"),
 			nil,
@@ -187,10 +187,10 @@ func TestControllerAddTask(t *testing.T) {
 		params := map[string]interface{}{"key": tt.Task.Key, "id": tt.Task.Id}
 		if tt.Task.RunAt != nil {
 			params["runAt"] = tt.Task.RunAt.Format(time.RFC3339)
-			broker.On("Call", TimetableHost, "insert", params).Return(tt.Result, tt.BrokerErr).Once()
+			broker.On("Call", TimetableHost, "insert", params).Return(tt.Result, tt.BrokerErr).Maybe()
 		} else {
 			params["priority"] = tt.Task.Priority
-			broker.On("Call", PriorityQueueHost, "push", params).Return(tt.Result, tt.BrokerErr).Once()
+			broker.On("Call", PriorityQueueHost, "push", params).Return(tt.Result, tt.BrokerErr).Maybe()
 		}
 		taskModel := new(MockModel)
 		rescModel := new(MockModel)
@@ -201,7 +201,7 @@ func TestControllerAddTask(t *testing.T) {
 			t.Fatal(err)
 		}
 		if tt.Task.Status != tt.Status {
-			t.Fatalf("expected task status to be %d, got %d", tt.Status, tt.Task.Status)
+			t.Fatalf("expected task status to be %s, got %s", tt.Status, tt.Task.Status)
 		}
 		broker.AssertExpectations(t)
 		taskModel.AssertExpectations(t)

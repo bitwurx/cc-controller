@@ -289,7 +289,7 @@ func TestAp1V1GetTask(t *testing.T) {
 			t.Fatal(errObj.Message)
 		}
 		if result != nil && result != tt.Result {
-			t.Fatalf("expected result to be %d, go %d", tt.Result, result)
+			t.Fatalf("expected result to be %v, go %d", tt.Result, result)
 		}
 		if errObj == nil || errObj.Code != jrpc2.InvalidParamsCode {
 			ctrl.AssertExpectations(t)
