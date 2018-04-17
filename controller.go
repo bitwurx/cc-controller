@@ -158,12 +158,12 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model, resourceMod
 		params["runAt"] = task.RunAt.Format(time.RFC3339)
 		result, errObj = ctrl.broker.Call(TimetableHost, "insert", params)
 		status = StatusScheduled
-		log.Printf("scheduled task [%v]\n", task)
+		log.Printf("scheduled task [%s %s]\n", task.Created, string(task.Meta))
 	} else {
 		params["priority"] = task.Priority
 		result, errObj = ctrl.broker.Call(PriorityQueueHost, "push", params)
 		status = StatusQueued
-		log.Printf("queued task [%v]\n", task)
+		log.Printf("queued task [%s %s]\n", task.Created, string(task.Meta))
 	}
 	if errObj != nil {
 		return errors.New(string(errObj.Message))
