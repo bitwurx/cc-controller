@@ -186,7 +186,7 @@ func (ctrl *ResourceController) AddTask(task *Task, taskModel Model, resourceMod
 	meta["_id"] = task.Id
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("created task [%v]\n", task)
+	log.Printf("created task [%s %s]\n", task.Created, string(task.Meta))
 
 	return nil
 }
@@ -223,7 +223,7 @@ func (ctrl *ResourceController) CompleteTask(taskId string, status string, taskM
 	meta["_id"] = taskId
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("completed task [%v]\n", task)
+	log.Printf("completed task [%s %s]\n", task.Created, string(task.Meta))
 
 	return nil
 }
@@ -320,7 +320,7 @@ func (ctrl *ResourceController) RemoveTask(id string, taskModel Model) error {
 	meta["_id"] = task.Id
 	data, _ := json.Marshal(meta)
 	ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-	log.Printf("removed task [%v]\n", task)
+	log.Printf("removed task [%s %s]\n", task.Created, string(task.Meta))
 
 	return nil
 }
@@ -363,7 +363,7 @@ func (ctrl *ResourceController) StartTask(key string, taskModel Model, resourceM
 		meta["_id"] = task.Id
 		data, _ := json.Marshal(meta)
 		ctrl.Notify(NewEvent(TaskStatusChangedEvent, data))
-		log.Printf("started task [%v] with resource [%s]\n", task, key)
+		log.Printf("started task [%s %s] with resource [%s]\n", task.Created, string(task.Meta), key)
 
 		return nil
 	}
@@ -391,7 +391,7 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 		if err := ctrl.Notify(NewEvent(TaskStatusChangedEvent, data)); err != nil {
 			log.Println(err)
 		}
-		log.Printf("staged task [%v]\n", task)
+		log.Printf("staged task [%s %s]\n", task.Created, string(task.Meta))
 	}
 }
 
