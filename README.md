@@ -86,7 +86,7 @@ priority - (*Number*) a floating point number indicating the task priority.
 runAt - (*String*) the task execution time as an RFC3339 formatted date/time string.
 
 #### Returns:
-(*Number*) the id of the newly created task
+(*String*) the id of the newly created task
 
 ---
 #### completeTask(key, status) : complete a start task
