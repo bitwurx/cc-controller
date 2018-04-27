@@ -400,7 +400,7 @@ func (ctrl *ResourceController) StageTask(task *Task, taskModel Model, changeSta
 func (ctrl *ResourceController) StartStageLoop(taskModel Model) {
 	for {
 		for key := range ctrl.resources {
-			if _, ok := ctrl.stage.Load(key); ok {
+			if _, ok := ctrl.stage.Load(key); ok || ctrl.resources[key].Status == ResourceLocked {
 				continue
 			}
 			task, _ := ctrl.stageScheduledTask(key)
