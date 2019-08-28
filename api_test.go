@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/bitwurx/jrpc2"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/mock"
 )
 
@@ -53,7 +53,7 @@ func TestAp1V1AddResource(t *testing.T) {
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
 		ctrl := &MockController{}
 		ctrl.On("AddResource", tt.Name, rescModel).Return(tt.CallErr)
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.AddResource(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -121,7 +121,7 @@ func TestAp1V1AddTask(t *testing.T) {
 		models := map[string]Model{"tasks": taskModel, "resources": rescModel}
 		ctrl := &MockController{}
 		ctrl.On("AddTask", mock.AnythingOfType("*main.Task"), taskModel, rescModel).Return(tt.CallErr)
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.AddTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -233,7 +233,7 @@ func TestAp1V1CompleteTask(t *testing.T) {
 		ctrl := &MockController{}
 		ctrl.On("CompleteTask", tt.TaskId, mock.AnythingOfType("string"), taskModel, rescModel).Return(tt.CallErr)
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.CompleteTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -283,7 +283,7 @@ func TestAp1V1GetTask(t *testing.T) {
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
 		ctrl := &MockController{}
 		ctrl.On("GetTask", tt.TaskId, taskModel).Return(tt.Result, tt.Err)
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.GetTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -365,7 +365,7 @@ func TestApiV1ListPriorityQueue(t *testing.T) {
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
 		ctrl := &MockController{}
 		ctrl.On("ListPriorityQueue", tt.Key).Return(tt.Result, tt.Err)
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.ListPriorityQueue(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -447,7 +447,7 @@ func TestApiV1ListTimetable(t *testing.T) {
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
 		ctrl := &MockController{}
 		ctrl.On("ListTimetable", tt.Key).Return(tt.Result, tt.Err)
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.ListTimetable(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -513,7 +513,7 @@ func TestAp1V1RemoveTask(t *testing.T) {
 		models := map[string]Model{"tasks": taskModel, "resources": rescModel}
 		ctrl := &MockController{}
 		ctrl.On("RemoveTask", tt.Id, taskModel).Return(tt.CallErr).Once()
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.RemoveTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)
@@ -609,7 +609,7 @@ func TestAp1V1StartTask(t *testing.T) {
 		ctrl := &MockController{}
 		ctrl.On("StartTask", tt.Key, taskModel, rescModel).Return(tt.CallErr)
 		models := map[string]Model{"resources": rescModel, "tasks": taskModel}
-		api := NewApiV1(models, ctrl, jrpc2.NewServer("", ""))
+		api := NewApiV1(models, ctrl, jrpc2.NewServer("", "", nil))
 		result, errObj := api.StartTask(tt.Body)
 		if errObj != nil && errObj.Code != tt.ErrCode && errObj.Message != tt.ErrMsg {
 			t.Fatal(errObj.Message)

@@ -57,7 +57,7 @@ func TestServiceBrokerCall(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	s := jrpc2.NewServer(":7777", "/rpc")
+	s := jrpc2.NewServer(":7777", "/rpc", nil)
 	s.Register("add", jrpc2.Method{Method: AddMethod})
 	go s.Start()
 	wg.Add(1)

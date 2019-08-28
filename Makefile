@@ -7,7 +7,7 @@ build:
 		-w /usr/src/concord-controller \
 		golang /bin/sh -c "go get -v -d && go build -a -installsuffix cgo -o main"
 	@docker build -t concord/controller .
-	@rm main
+	@rm -f main
 
 .PHONY: mock
 mock: 
