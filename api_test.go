@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/bitwurx/jrpc2"
-	uuid "github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 	"github.com/stretchr/testify/mock"
 )
 
