@@ -7,7 +7,7 @@ build:
 		-w /usr/src/concord-controller \
 		golang /bin/sh -c "go get -v -d && go build -a -installsuffix cgo -o main"
 	@docker build -t concord/controller .
-	@rm main
+	@rm -f main
 
 .PHONY: mock
 mock: 
@@ -48,4 +48,4 @@ test-short:
 		-v $(PWD):/go/src/concord-controller \
 		-v $(PWD)/.src:/go/src \
 		-w /go/src/concord-controller \
-		golang /bin/sh -c "go get -v -t -d && go test -short -v"
+		golang /bin/sh -c "go get -v -t -d && go test -short -v -coverprofile=.coverage.out"

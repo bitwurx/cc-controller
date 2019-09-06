@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 )
 
 const (
